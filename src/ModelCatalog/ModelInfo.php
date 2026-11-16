@@ -39,6 +39,8 @@ final class ModelInfo
         public readonly ?float $codingIndex = null,
         /** Artificial Analysis agentic index, when published. */
         public readonly ?float $agenticIndex = null,
+        /** The model always reasons: its reasoning cannot be turned off. */
+        public readonly bool $reasoningMandatory = false,
     ) {
     }
 

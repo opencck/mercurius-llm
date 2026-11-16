@@ -53,6 +53,13 @@ final class PayloadMapper
             }
         }
 
+        // OpenAI Chat Completions refuses function tools with reasoning on ("use /v1/responses or set reasoning_effort
+        // to 'none'"), and reasoning is on by default: with tools it is turned off explicitly.
+        if ($openAi && $request->tools !== []) {
+            $payload['reasoning_effort'] = 'none';
+            unset($payload['temperature']);
+        }
+
         $payload = \array_replace($payload, $request->extra);
 
         if ($stream) {

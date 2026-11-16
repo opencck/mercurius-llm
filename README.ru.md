@@ -77,8 +77,8 @@ foreach ($llm->stream($request) as $event) {
 | `LlmException`, `ErrorKind` | Классифицированная ошибка (`auth`, `rate_limited`, `bad_request`, `context_length`, `content_filter`, `server`, `timeout`, `network`, `insufficient_credits`, `unknown`), `retryable()`, `retryAfter`, `status` |
 | `RetryingClient` | Декоратор: повторяет повторяемые ошибки с экспоненциальной задержкой и полным джиттером, учитывает `Retry-After`, не повторяет поток после первого события |
 | `OpenRouter\OpenRouterClient` | Адаптер OpenRouter Chat Completions: разбор SSE (keep-alive комментарии, `[DONE]`, ошибки посреди потока, чанк с usage), классификация ошибок, таймауты и лимиты размера |
-| `OpenAI\OpenAIClient` | Адаптер OpenAI API Chat Completions на том же коде протокола: `max_completion_tokens`, `reasoning_effort` строкой, без `temperature`, когда задано усилие рассуждения, без заголовков атрибуции OpenRouter; стоимость API не сообщает, поэтому `Usage::$costUsd` — null |
-| `ModelCatalog\OpenAICatalog` | `fetch(): list<ModelInfo>`: модели ключа (`GET /v1/models`), описанные открытым каталогом OpenRouter (`openai/<id>`); модели, которых там нет (эмбеддинги, речь), не попадают |
+| `OpenAI\OpenAIClient` | Адаптер OpenAI API Chat Completions на том же коде протокола: `max_completion_tokens`, `reasoning_effort` строкой (`none`, если в запросе есть инструменты: Chat Completions не принимает инструменты при включённом рассуждении), без `temperature`, когда задано усилие рассуждения, без заголовков атрибуции OpenRouter; стоимость API не сообщает, поэтому `Usage::$costUsd` — null |
+| `ModelCatalog\OpenAICatalog` | `fetch(): list<ModelInfo>`: модели ключа (`GET /v1/models`), описанные открытым каталогом OpenRouter (`openai/<id>`); модели, которых там нет (эмбеддинги, речь), не попадают; модель, которая рассуждает всегда, — без инструментов |
 | `ModelCatalog\OpenRouterCatalog`, `ModelInfo` | `fetch(): list<ModelInfo>` из `GET /models`: размер контекста, цены за токен, модальности, поддерживаемые параметры, индексы Artificial Analysis (интеллект, код, агентность), если опубликованы, `estimateCost(Usage)` |
 
 Замечания:

@@ -64,6 +64,11 @@ final class OpenAICatalog
             if ($ref === null || \preg_match(self::NOT_CHAT, $id) === 1) {
                 continue;
             }
+            // Chat Completions of the OpenAI API take function tools only with reasoning off: a model that always
+            // reasons gets no tools there (it would need /v1/responses).
+            $parameters = $ref->reasoningMandatory
+                ? \array_values(\array_diff($ref->supportedParameters, ['tools', 'tool_choice']))
+                : $ref->supportedParameters;
             $models[] = new ModelInfo(
                 $id,
                 $ref->name,
@@ -72,13 +77,14 @@ final class OpenAICatalog
                 $ref->outputPricePerToken,
                 $ref->inputModalities,
                 $ref->outputModalities,
-                $ref->supportedParameters,
+                $parameters,
                 $ref->maxCompletionTokens,
                 $ref->cacheReadPricePerToken,
                 $ref->cacheWritePricePerToken,
                 $ref->intelligenceIndex,
                 $ref->codingIndex,
                 $ref->agenticIndex,
+                $ref->reasoningMandatory,
             );
         }
 

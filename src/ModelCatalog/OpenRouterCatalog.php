@@ -58,6 +58,7 @@ final class OpenRouterCatalog
             $architecture = Json::object($entry, 'architecture');
             $topProvider = Json::object($entry, 'top_provider');
             $scores = Json::object(Json::object($entry, 'benchmarks'), 'artificial_analysis');
+            $reasoning = Json::object($entry, 'reasoning');
 
             $models[] = new ModelInfo(
                 $id,
@@ -74,6 +75,7 @@ final class OpenRouterCatalog
                 Json::float($scores, 'intelligence_index'),
                 Json::float($scores, 'coding_index'),
                 Json::float($scores, 'agentic_index'),
+                ($reasoning['mandatory'] ?? false) === true,
             );
         }
 

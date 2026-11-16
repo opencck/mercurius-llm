@@ -64,8 +64,12 @@ final class StreamStallTest extends AsyncTestCase
         })(), ['content-type' => 'text/event-stream']);
         $client = new OpenRouterClient($http->client(), 'sk', firstEventTimeout: 5.0, eventTimeout: 0.3);
 
-        $this->expectException(LlmException::class);
-        self::drain($client);
+        try {
+            self::drain($client);
+            self::fail('expected a timeout');
+        } catch (LlmException $e) {
+            self::assertSame(ErrorKind::Timeout, $e->kind);
+        }
     }
 
     public function testSteadyEventsKeepTheStreamGoing(): void

@@ -52,7 +52,7 @@ final class OpenAIClientTest extends AsyncTestCase
         $client->complete(new ChatRequest('gpt-6-luna', [Message::user('Hi')], [new \Mercurius\Llm\ToolDefinition('read', 'Read a file', ['type' => 'object', 'properties' => ['path' => ['type' => 'string']]])], reasoningEffort: 'max'));
 
         $body = $http->lastPayload();
-        self::assertSame('xhigh', $body['reasoning_effort']);
+        self::assertSame('none', $body['reasoning_effort'], 'tools in Chat Completions only with reasoning off');
         self::assertSame([['type' => 'function', 'function' => ['name' => 'read', 'description' => 'Read a file', 'parameters' => ['type' => 'object', 'properties' => ['path' => ['type' => 'string']]]]]], $body['tools']);
     }
 

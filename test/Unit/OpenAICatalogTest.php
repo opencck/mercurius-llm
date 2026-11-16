@@ -25,7 +25,7 @@ final class OpenAICatalogTest extends AsyncTestCase
                 . '"benchmarks":{"artificial_analysis":{"intelligence_index":27.9,"coding_index":null,"agentic_index":null}}},'
                 . '{"id":"openai/gpt-6-luna:batch","name":"batch","context_length":1050000,"pricing":{"prompt":"0.00000005","completion":"0.00000025"}},'
                 . '{"id":"openai/gpt-6.1-sol","name":"OpenAI: GPT-6.1 Sol","context_length":1050000,'
-                . '"pricing":{"prompt":"0.000002","completion":"0.00001"},"supported_parameters":["tools"]},'
+                . '"pricing":{"prompt":"0.000002","completion":"0.00001"},"supported_parameters":["tools","reasoning"],"reasoning":{"mandatory":true}},'
                 . '{"id":"openai/gpt-6-luna-pro","name":"pro","context_length":1050000,"pricing":{"prompt":"0.0000001","completion":"0.0000005"},"supported_parameters":["tools"]},'
                 . '{"id":"openai/gpt-6.1-codex","name":"codex","context_length":1050000,"pricing":{"prompt":"0.000001","completion":"0.000005"},"supported_parameters":["tools"]},'
                 . '{"id":"anthropic/claude-opus-5","name":"Claude","context_length":1000000,"pricing":{"prompt":"0.000005","completion":"0.000025"}}'
@@ -47,5 +47,7 @@ final class OpenAICatalogTest extends AsyncTestCase
         self::assertTrue($luna->supportsTools());
         self::assertSame(27.9, $luna->intelligenceIndex);
         self::assertSame(128000, $luna->maxCompletionTokens);
+        self::assertFalse($models[1]->supportsTools(), 'always reasoning: no tools through Chat Completions');
+        self::assertTrue($models[1]->reasoningMandatory);
     }
 }

@@ -77,8 +77,8 @@ The calls block only the current fiber: run them inside the Revolt event loop (`
 | `LlmException`, `ErrorKind` | Classified failure (`auth`, `rate_limited`, `bad_request`, `context_length`, `content_filter`, `server`, `timeout`, `network`, `insufficient_credits`, `unknown`), `retryable()`, `retryAfter`, `status` |
 | `RetryingClient` | Decorator: retries retryable errors with exponential backoff and full jitter, honours `Retry-After`, never retries a stream after its first event |
 | `OpenRouter\OpenRouterClient` | OpenRouter Chat Completions adapter: SSE parsing (keep-alive comments, `[DONE]`, mid-stream errors, usage chunk), error mapping, timeouts and size limits |
-| `OpenAI\OpenAIClient` | OpenAI API Chat Completions adapter on the same protocol code: `max_completion_tokens`, a `reasoning_effort` string, no `temperature` when a reasoning effort is set, no OpenRouter attribution headers; the API reports no cost, so `Usage::$costUsd` is null |
-| `ModelCatalog\OpenAICatalog` | `fetch(): list<ModelInfo>`: the models of the key (`GET /v1/models`) described by the public OpenRouter catalog (`openai/<id>`); models it does not know (embeddings, speech) are left out |
+| `OpenAI\OpenAIClient` | OpenAI API Chat Completions adapter on the same protocol code: `max_completion_tokens`, a `reasoning_effort` string (`none` when the request has tools — Chat Completions refuses function tools with reasoning on), no `temperature` when a reasoning effort is set, no OpenRouter attribution headers; the API reports no cost, so `Usage::$costUsd` is null |
+| `ModelCatalog\OpenAICatalog` | `fetch(): list<ModelInfo>`: the models of the key (`GET /v1/models`) described by the public OpenRouter catalog (`openai/<id>`); models it does not know (embeddings, speech) are left out; a model that always reasons is listed without tools |
 | `ModelCatalog\OpenRouterCatalog`, `ModelInfo` | `fetch(): list<ModelInfo>` from `GET /models`: context length, prices per token, modalities, supported parameters, Artificial Analysis indices (intelligence, coding, agentic) when published, `estimateCost(Usage)` |
 
 Notes:
