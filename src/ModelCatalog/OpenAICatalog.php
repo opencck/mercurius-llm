@@ -20,6 +20,11 @@ use Mercurius\Llm\OpenRouter\Json;
 final class OpenAICatalog
 {
     private const REFERENCE_PREFIX = 'openai/';
+    /**
+     * Families the OpenAI API serves only through `/v1/responses` or for one purpose: Chat Completions answers them
+     * with 400, so they must not be chosen.
+     */
+    private const NOT_CHAT = '/(codex|-pro(-|$)|search|deep-research|realtime|audio|transcribe|tts|image)/i';
 
     private readonly HttpTransport $transport;
 
@@ -56,7 +61,7 @@ final class OpenAICatalog
         $models = [];
         foreach ($ids as $id) {
             $ref = $known[self::REFERENCE_PREFIX . $id] ?? null;
-            if ($ref === null) {
+            if ($ref === null || \preg_match(self::NOT_CHAT, $id) === 1) {
                 continue;
             }
             $models[] = new ModelInfo(

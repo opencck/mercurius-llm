@@ -46,7 +46,8 @@ final class PayloadMapper
         }
         if ($request->reasoningEffort !== null) {
             if ($openAi) {
-                $payload['reasoning_effort'] = $request->reasoningEffort;
+                // The OpenAI API has no "max": its highest effort is "xhigh".
+                $payload['reasoning_effort'] = $request->reasoningEffort === 'max' ? 'xhigh' : $request->reasoningEffort;
             } else {
                 $payload['reasoning'] = ['effort' => $request->reasoningEffort];
             }

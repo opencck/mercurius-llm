@@ -44,6 +44,32 @@ final class OpenAIClientTest extends AsyncTestCase
         self::assertNull($response->usage->costUsd, 'the OpenAI API reports no cost');
     }
 
+    public function testMaxEffortBecomesXhighAndToolsAreSent(): void
+    {
+        $http = (new FakeHttp())->respond(200, self::OK_BODY);
+        $client = new OpenAIClient($http->client(), 'sk-proj-secret');
+
+        $client->complete(new ChatRequest('gpt-6-luna', [Message::user('Hi')], [new \Mercurius\Llm\ToolDefinition('read', 'Read a file', ['type' => 'object', 'properties' => ['path' => ['type' => 'string']]])], reasoningEffort: 'max'));
+
+        $body = $http->lastPayload();
+        self::assertSame('xhigh', $body['reasoning_effort']);
+        self::assertSame([['type' => 'function', 'function' => ['name' => 'read', 'description' => 'Read a file', 'parameters' => ['type' => 'object', 'properties' => ['path' => ['type' => 'string']]]]]], $body['tools']);
+    }
+
+    public function testQuotaIsNotARateLimit(): void
+    {
+        $http = (new FakeHttp())->respond(429, '{"error":{"message":"You exceeded your current quota, please check your plan and billing details.","type":"insufficient_quota","code":"insufficient_quota"}}');
+        $client = new OpenAIClient($http->client(), 'sk-proj-secret');
+
+        try {
+            $client->complete(new ChatRequest('gpt-6-luna', [Message::user('Hi')]));
+            self::fail('expected an error');
+        } catch (LlmException $e) {
+            self::assertSame(ErrorKind::InsufficientCredits, $e->kind);
+            self::assertFalse($e->retryable());
+        }
+    }
+
     public function testTemperatureIsSentWithoutReasoning(): void
     {
         $http = (new FakeHttp())->respond(200, self::OK_BODY);

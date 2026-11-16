@@ -15,7 +15,8 @@ final class OpenAICatalogTest extends AsyncTestCase
     {
         $http = (new FakeHttp())
             ->respond(200, '{"object":"list","data":[{"id":"gpt-6-luna","object":"model","owned_by":"openai"},'
-                . '{"id":"text-embedding-4","object":"model","owned_by":"openai"},{"id":"gpt-6.1-sol","object":"model","owned_by":"openai"}]}')
+                . '{"id":"text-embedding-4","object":"model","owned_by":"openai"},{"id":"gpt-6.1-sol","object":"model","owned_by":"openai"},'
+                . '{"id":"gpt-6-luna-pro","object":"model"},{"id":"gpt-6.1-codex","object":"model"}]}')
             ->respond(200, '{"data":['
                 . '{"id":"openai/gpt-6-luna","name":"OpenAI: GPT-6 Luna","context_length":1050000,'
                 . '"architecture":{"input_modalities":["text","image"],"output_modalities":["text"]},'
@@ -25,6 +26,8 @@ final class OpenAICatalogTest extends AsyncTestCase
                 . '{"id":"openai/gpt-6-luna:batch","name":"batch","context_length":1050000,"pricing":{"prompt":"0.00000005","completion":"0.00000025"}},'
                 . '{"id":"openai/gpt-6.1-sol","name":"OpenAI: GPT-6.1 Sol","context_length":1050000,'
                 . '"pricing":{"prompt":"0.000002","completion":"0.00001"},"supported_parameters":["tools"]},'
+                . '{"id":"openai/gpt-6-luna-pro","name":"pro","context_length":1050000,"pricing":{"prompt":"0.0000001","completion":"0.0000005"},"supported_parameters":["tools"]},'
+                . '{"id":"openai/gpt-6.1-codex","name":"codex","context_length":1050000,"pricing":{"prompt":"0.000001","completion":"0.000005"},"supported_parameters":["tools"]},'
                 . '{"id":"anthropic/claude-opus-5","name":"Claude","context_length":1000000,"pricing":{"prompt":"0.000005","completion":"0.000025"}}'
                 . ']}');
         $client = $http->client();
@@ -35,7 +38,7 @@ final class OpenAICatalogTest extends AsyncTestCase
         self::assertSame('https://api.openai.com/v1/models', (string) $http->requests[0]->getUri());
         self::assertSame('Bearer sk-proj-secret', $http->requests[0]->getHeader('authorization'));
         self::assertNull($http->requests[1]->getHeader('authorization'), 'the reference catalog is public');
-        self::assertSame(['gpt-6-luna', 'gpt-6.1-sol'], \array_map(static fn($m) => $m->id, $models), 'only chat models known to the reference');
+        self::assertSame(['gpt-6-luna', 'gpt-6.1-sol'], \array_map(static fn($m) => $m->id, $models), 'only chat models known to the reference; Responses-only families are left out');
         $luna = $models[0];
         self::assertSame('OpenAI: GPT-6 Luna', $luna->name);
         self::assertSame(1050000, $luna->contextLength);

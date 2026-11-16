@@ -99,7 +99,8 @@ final class ErrorClassifier
             $status === 403 => $byMessage === ErrorKind::ContentFilter ? ErrorKind::ContentFilter : ErrorKind::Auth,
             $status === 408 => ErrorKind::Timeout,
             $status === 413 => ErrorKind::ContextLength,
-            $status === 429 => ErrorKind::RateLimited,
+            // OpenAI reports a spent balance as 429 too; waiting does not help it.
+            $status === 429 => $byMessage === ErrorKind::InsufficientCredits ? ErrorKind::InsufficientCredits : ErrorKind::RateLimited,
             $status >= 400 && $status < 500 => $byMessage === ErrorKind::ContextLength ? ErrorKind::ContextLength : ErrorKind::BadRequest,
             $status >= 500 && $status < 600 => ErrorKind::Server,
             default => ErrorKind::Unknown,
@@ -140,6 +141,12 @@ final class ErrorClassifier
         foreach (self::MODERATION_PATTERNS as $pattern) {
             if (\str_contains($lower, $pattern)) {
                 return ErrorKind::ContentFilter;
+            }
+        }
+        // ref: references/hermes-agent/agent/error_classifier.py@e96221fa:L115 — billing phrases, insufficient_quota
+        foreach (['exceeded your current quota', 'insufficient_quota', 'insufficient credits', 'insufficient balance'] as $pattern) {
+            if (\str_contains($lower, $pattern)) {
+                return ErrorKind::InsufficientCredits;
             }
         }
 
