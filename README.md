@@ -85,6 +85,7 @@ Notes:
 
 - The client takes any `Amp\Http\Client\HttpClient`, so connections can go through a proxy or a custom connector; the package itself makes no network decisions.
 - Errors never contain the API key or the request body; provider messages are truncated to 500 characters.
+- A stream that sends no data event for `firstEventTimeout` (240 s) before the first one, or `eventTimeout` (120 s) between them, fails with a retryable `Timeout`; keep-alive comments do not count, so a provider that keeps the connection busy without answering cannot hold a call for the whole transfer timeout.
 - `stream()` sends the request when iteration starts. Dropping the iterator or cancelling closes the response body.
 
 ## Development

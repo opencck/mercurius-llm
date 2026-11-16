@@ -36,6 +36,9 @@ final class OpenRouterClient implements LlmClient
      *                                 silent until the whole answer is ready, so keep this generous.
      * @param float $transferTimeout Maximum duration of the whole request including the body, in seconds.
      * @param int $maxResponseBytes Maximum response body size.
+     * @param float $firstEventTimeout Seconds a stream may go without its first data event; keep-alive comments do
+     *                                   not count. A stalled stream is a retryable Timeout.
+     * @param float $eventTimeout Seconds a stream may go between data events.
      */
     public function __construct(
         HttpClient $http,
@@ -48,6 +51,8 @@ final class OpenRouterClient implements LlmClient
         float $inactivityTimeout = 300.0,
         float $transferTimeout = 900.0,
         int $maxResponseBytes = 32 * 1024 * 1024,
+        float $firstEventTimeout = 240.0,
+        float $eventTimeout = 120.0,
     ) {
         if ($apiKey === '') {
             throw new \InvalidArgumentException('OpenRouter API key must not be empty');
@@ -62,7 +67,7 @@ final class OpenRouterClient implements LlmClient
             $inactivityTimeout,
             $transferTimeout,
             $maxResponseBytes,
-        ), Dialect::OpenRouter, 'OpenRouter');
+        ), Dialect::OpenRouter, 'OpenRouter', $firstEventTimeout, $eventTimeout);
     }
 
     #[\Override]

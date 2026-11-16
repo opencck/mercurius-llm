@@ -30,6 +30,9 @@ final class OpenAIClient implements LlmClient
      * @param float $inactivityTimeout Maximum silence on the connection, in seconds.
      * @param float $transferTimeout Maximum duration of the whole request including the body, in seconds.
      * @param int $maxResponseBytes Maximum response body size.
+     * @param float $firstEventTimeout Seconds a stream may go without its first data event; keep-alive comments do
+     *                                   not count. A stalled stream is a retryable Timeout.
+     * @param float $eventTimeout Seconds a stream may go between data events.
      */
     public function __construct(
         HttpClient $http,
@@ -40,6 +43,8 @@ final class OpenAIClient implements LlmClient
         float $inactivityTimeout = 300.0,
         float $transferTimeout = 900.0,
         int $maxResponseBytes = 32 * 1024 * 1024,
+        float $firstEventTimeout = 240.0,
+        float $eventTimeout = 120.0,
     ) {
         if ($apiKey === '') {
             throw new \InvalidArgumentException('OpenAI API key must not be empty');
@@ -48,6 +53,8 @@ final class OpenAIClient implements LlmClient
             new HttpTransport($http, $apiKey, $baseUrl, null, null, $connectTimeout, $inactivityTimeout, $transferTimeout, $maxResponseBytes),
             Dialect::OpenAI,
             'OpenAI',
+            $firstEventTimeout,
+            $eventTimeout,
         );
     }
 

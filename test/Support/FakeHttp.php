@@ -35,13 +35,13 @@ final class FakeHttp implements DelegateHttpClient
     }
 
     /**
-     * @param string|list<string> $body A list is streamed chunk by chunk.
+     * @param string|iterable<string> $body A list (or a generator, to pause between chunks) is streamed chunk by chunk.
      * @param array<non-empty-string, string> $headers
      */
-    public function respond(int $status, string|array $body, array $headers = []): self
+    public function respond(int $status, string|iterable $body, array $headers = []): self
     {
         $this->queue[] = function (Request $request) use ($status, $body, $headers): Response {
-            $stream = \is_array($body) ? new ReadableIterableStream($body) : $body;
+            $stream = \is_iterable($body) ? new ReadableIterableStream($body) : $body;
             if ($stream instanceof ReadableIterableStream) {
                 $this->streams[] = $stream;
             }

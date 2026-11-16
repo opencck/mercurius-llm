@@ -6,6 +6,9 @@ namespace Mercurius\Llm\OpenRouter;
 
 use Amp\ByteStream\StreamException;
 use Amp\Cancellation;
+use Amp\CancelledException;
+use Amp\CompositeCancellation;
+use Amp\TimeoutCancellation;
 use Mercurius\Llm\ChatRequest;
 use Mercurius\Llm\ChatResponse;
 use Mercurius\Llm\ErrorKind;
@@ -21,10 +24,16 @@ use Mercurius\Llm\StreamEvent;
  */
 final class ChatCompletions
 {
+    /**
+     * @param float $firstEventTimeout seconds a stream may go without its first data event
+     * @param float $eventTimeout seconds a stream may go between data events; keep-alive comments do not count
+     */
     public function __construct(
         private readonly HttpTransport $transport,
         private readonly Dialect $dialect,
         private readonly string $provider,
+        private readonly float $firstEventTimeout = 240.0,
+        private readonly float $eventTimeout = 120.0,
     ) {}
 
     public function complete(ChatRequest $request, ?Cancellation $cancellation = null): ChatResponse
@@ -65,16 +74,35 @@ final class ChatCompletions
         $parser = new SseParser();
         $accumulator = new StreamAccumulator();
         $done = false;
+        // ref: references/hermes-agent/agent/chat_completion_helpers.py@e96221fa:L2835-L2842 (_count_chunk) — only real
+        //      chunks re-arm the stale timer; OpenRouter's keep-alive comments keep the socket busy but say nothing.
+        //      The HTTP inactivity timeout counts bytes, so it never fires on them.
+        $deadline = \microtime(true) + $this->firstEventTimeout;
+        $limit = $this->firstEventTimeout;
 
         try {
             while (!$done) {
+                $left = $deadline - \microtime(true);
+                if ($left <= 0) {
+                    throw $this->stalled($limit);
+                }
+                $timeout = new TimeoutCancellation($left);
                 try {
-                    $chunk = $body->read($cancellation);
+                    $chunk = $body->read($cancellation === null ? $timeout : new CompositeCancellation($cancellation, $timeout));
                 } catch (StreamException $e) {
                     throw $this->named(ErrorClassifier::fromStreamException($e));
+                } catch (CancelledException $e) {
+                    if (self::requested($cancellation)) {
+                        throw $e;
+                    }
+                    throw $this->stalled($limit);
                 }
 
                 $payloads = $chunk === null ? [$parser->finish()] : $parser->push($chunk);
+                if (\array_filter($payloads, static fn(?string $p): bool => $p !== null) !== []) {
+                    $deadline = \microtime(true) + $this->eventTimeout;
+                    $limit = $this->eventTimeout;
+                }
                 foreach ($payloads as $payload) {
                     if ($payload === null) {
                         continue;
@@ -105,6 +133,18 @@ final class ChatCompletions
         }
 
         yield new StreamEnd($accumulator->response());
+    }
+
+    /** Whether the caller (not the stall timer) cancelled. */
+    private static function requested(?Cancellation $cancellation): bool
+    {
+        return $cancellation !== null && $cancellation->isRequested();
+    }
+
+    /** A retryable timeout: before the first event a retry is safe, after it the caller decides. */
+    private function stalled(float $seconds): LlmException
+    {
+        return new LlmException(ErrorKind::Timeout, \sprintf('%s: no stream events for %d s', $this->provider, (int) \ceil($seconds)));
     }
 
     /** The shared parts say "OpenRouter"; another provider gets its own name in the message. */
