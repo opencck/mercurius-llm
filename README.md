@@ -2,7 +2,7 @@
 
 **English** | [Русский](README.ru.md)
 
-A unified interface for calling large language models: messages, tools, streaming, token and cost accounting, errors and retries. The first adapter is OpenRouter; other providers are added as adapters without changing the interface.
+A unified interface for calling large language models: messages, tools, streaming, token and cost accounting, errors and retries. Adapters: OpenRouter and the OpenAI API; other providers are added as adapters without changing the interface.
 
 Part of [Mercurius](https://github.com/opencck/mercurius), an autonomous personal agent. The package does not depend on the Mercurius application and can be used on its own.
 
@@ -77,6 +77,8 @@ The calls block only the current fiber: run them inside the Revolt event loop (`
 | `LlmException`, `ErrorKind` | Classified failure (`auth`, `rate_limited`, `bad_request`, `context_length`, `content_filter`, `server`, `timeout`, `network`, `insufficient_credits`, `unknown`), `retryable()`, `retryAfter`, `status` |
 | `RetryingClient` | Decorator: retries retryable errors with exponential backoff and full jitter, honours `Retry-After`, never retries a stream after its first event |
 | `OpenRouter\OpenRouterClient` | OpenRouter Chat Completions adapter: SSE parsing (keep-alive comments, `[DONE]`, mid-stream errors, usage chunk), error mapping, timeouts and size limits |
+| `OpenAI\OpenAIClient` | OpenAI API Chat Completions adapter on the same protocol code: `max_completion_tokens`, a `reasoning_effort` string, no `temperature` when a reasoning effort is set, no OpenRouter attribution headers; the API reports no cost, so `Usage::$costUsd` is null |
+| `ModelCatalog\OpenAICatalog` | `fetch(): list<ModelInfo>`: the models of the key (`GET /v1/models`) described by the public OpenRouter catalog (`openai/<id>`); models it does not know (embeddings, speech) are left out |
 | `ModelCatalog\OpenRouterCatalog`, `ModelInfo` | `fetch(): list<ModelInfo>` from `GET /models`: context length, prices per token, modalities, supported parameters, Artificial Analysis indices (intelligence, coding, agentic) when published, `estimateCost(Usage)` |
 
 Notes:

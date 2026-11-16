@@ -25,7 +25,7 @@ final class OpenRouterClient implements LlmClient
 {
     public const DEFAULT_BASE_URL = 'https://openrouter.ai/api/v1';
 
-    private readonly HttpTransport $transport;
+    private readonly ChatCompletions $completions;
 
     /**
      * @param string|null $appName Sent as `X-Title` (app attribution on openrouter.ai).
@@ -52,7 +52,7 @@ final class OpenRouterClient implements LlmClient
         if ($apiKey === '') {
             throw new \InvalidArgumentException('OpenRouter API key must not be empty');
         }
-        $this->transport = new HttpTransport(
+        $this->completions = new ChatCompletions(new HttpTransport(
             $http,
             $apiKey,
             $baseUrl,
@@ -62,21 +62,13 @@ final class OpenRouterClient implements LlmClient
             $inactivityTimeout,
             $transferTimeout,
             $maxResponseBytes,
-        );
+        ), Dialect::OpenRouter, 'OpenRouter');
     }
 
     #[\Override]
     public function complete(ChatRequest $request, ?Cancellation $cancellation = null): ChatResponse
     {
-        $response = $this->transport->send(
-            'POST',
-            '/chat/completions',
-            PayloadMapper::toPayload($request, false),
-            'application/json',
-            $cancellation,
-        );
-
-        return PayloadMapper::toResponse($this->transport->decodeJson($response, $cancellation));
+        return $this->completions->complete($request, $cancellation);
     }
 
     /**
@@ -85,52 +77,6 @@ final class OpenRouterClient implements LlmClient
     #[\Override]
     public function stream(ChatRequest $request, ?Cancellation $cancellation = null): \Generator
     {
-        $response = $this->transport->send(
-            'POST',
-            '/chat/completions',
-            PayloadMapper::toPayload($request, true),
-            'text/event-stream',
-            $cancellation,
-        );
-
-        $body = $response->getBody();
-        $parser = new SseParser();
-        $accumulator = new StreamAccumulator();
-        $done = false;
-
-        try {
-            while (!$done) {
-                try {
-                    $chunk = $body->read($cancellation);
-                } catch (StreamException $e) {
-                    throw ErrorClassifier::fromStreamException($e);
-                }
-
-                $payloads = $chunk === null ? [$parser->finish()] : $parser->push($chunk);
-                foreach ($payloads as $payload) {
-                    if ($payload === null) {
-                        continue;
-                    }
-                    if (\trim($payload) === '[DONE]') {
-                        $done = true;
-                        break;
-                    }
-                    foreach ($accumulator->push(HttpTransport::decode($payload)) as $event) {
-                        yield $event;
-                    }
-                }
-                if ($chunk === null) {
-                    break;
-                }
-            }
-        } finally {
-            $body->close();
-        }
-
-        if (!$done && !$accumulator->finished()) {
-            throw new LlmException(ErrorKind::Network, 'OpenRouter: stream ended before the answer was complete');
-        }
-
-        yield new StreamEnd($accumulator->response());
+        return $this->completions->stream($request, $cancellation);
     }
 }

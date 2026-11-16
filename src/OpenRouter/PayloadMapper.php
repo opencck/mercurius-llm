@@ -25,7 +25,7 @@ final class PayloadMapper
     /**
      * @return array<string, mixed>
      */
-    public static function toPayload(ChatRequest $request, bool $stream): array
+    public static function toPayload(ChatRequest $request, bool $stream, Dialect $dialect = Dialect::OpenRouter): array
     {
         $payload = [
             'model' => $request->model,
@@ -34,14 +34,22 @@ final class PayloadMapper
         if ($request->tools !== []) {
             $payload['tools'] = \array_map(self::tool(...), $request->tools);
         }
+        $openAi = $dialect === Dialect::OpenAI;
         if ($request->maxTokens !== null) {
-            $payload['max_tokens'] = $request->maxTokens;
+            // ref: references/hermes-agent/utils.py@e96221fa:L835-L838 (model_forces_max_completion_tokens) — newer
+            //      OpenAI models refuse max_tokens; the OpenAI API takes max_completion_tokens for all of them
+            $payload[$openAi ? 'max_completion_tokens' : 'max_tokens'] = $request->maxTokens;
         }
-        if ($request->temperature !== null) {
+        // Reasoning models of the OpenAI API refuse a temperature other than the default.
+        if ($request->temperature !== null && !($openAi && $request->reasoningEffort !== null)) {
             $payload['temperature'] = $request->temperature;
         }
         if ($request->reasoningEffort !== null) {
-            $payload['reasoning'] = ['effort' => $request->reasoningEffort];
+            if ($openAi) {
+                $payload['reasoning_effort'] = $request->reasoningEffort;
+            } else {
+                $payload['reasoning'] = ['effort' => $request->reasoningEffort];
+            }
         }
 
         $payload = \array_replace($payload, $request->extra);
