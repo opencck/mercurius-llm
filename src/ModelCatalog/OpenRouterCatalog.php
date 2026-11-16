@@ -57,6 +57,7 @@ final class OpenRouterCatalog
             $pricing = Json::object($entry, 'pricing');
             $architecture = Json::object($entry, 'architecture');
             $topProvider = Json::object($entry, 'top_provider');
+            $scores = Json::object(Json::object($entry, 'benchmarks'), 'artificial_analysis');
 
             $models[] = new ModelInfo(
                 $id,
@@ -70,6 +71,9 @@ final class OpenRouterCatalog
                 self::positiveInt($topProvider, 'max_completion_tokens'),
                 self::price($pricing, 'input_cache_read'),
                 self::price($pricing, 'input_cache_write'),
+                Json::float($scores, 'intelligence_index'),
+                Json::float($scores, 'coding_index'),
+                Json::float($scores, 'agentic_index'),
             );
         }
 

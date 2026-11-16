@@ -33,6 +33,12 @@ final class ModelInfo
         public readonly ?float $cacheReadPricePerToken = null,
         /** USD per token written to the prompt cache, when published. */
         public readonly ?float $cacheWritePricePerToken = null,
+        /** Artificial Analysis intelligence index, when the catalog publishes it. */
+        public readonly ?float $intelligenceIndex = null,
+        /** Artificial Analysis coding index, when published. */
+        public readonly ?float $codingIndex = null,
+        /** Artificial Analysis agentic index, when published. */
+        public readonly ?float $agenticIndex = null,
     ) {
     }
 

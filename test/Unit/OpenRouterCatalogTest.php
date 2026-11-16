@@ -59,7 +59,12 @@ final class OpenRouterCatalogTest extends AsyncTestCase
         self::assertNotNull($cost);
         self::assertEqualsWithDelta(0.003 + 0.0015 + 0.003, $cost, 1e-12);
 
+        self::assertSame(44.2, $sonnet->intelligenceIndex);
+        self::assertSame(78.0, $sonnet->codingIndex);
+        self::assertSame(56.5, $sonnet->agenticIndex);
+
         $auto = $models[1];
+        self::assertNull($auto->intelligenceIndex, 'no benchmarks published');
         self::assertNull($auto->inputPricePerToken, 'negative price means variable');
         self::assertNull($auto->maxCompletionTokens);
         self::assertNull($auto->estimateCost(new Usage(1, 1)));
