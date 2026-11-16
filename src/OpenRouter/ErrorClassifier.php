@@ -1,0 +1,174 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Mercurius\Llm\OpenRouter;
+
+use Amp\ByteStream\StreamException;
+use Amp\Http\Client\HttpException;
+use Amp\Http\Client\TimeoutException;
+use Mercurius\Llm\ErrorKind;
+use Mercurius\Llm\LlmException;
+
+/**
+ * Turns OpenRouter error responses (HTTP status, error body, mid-stream error chunks) and transport failures into
+ * {@see LlmException}.
+ *
+ * Error body format: `{"error": {"code": 429, "message": "...", "metadata": {...}}}`.
+ *
+ * @internal
+ */
+final class ErrorClassifier
+{
+    private const MAX_MESSAGE_LENGTH = 500;
+
+    private const CONTEXT_PATTERNS = [
+        'context length',
+        'context_length',
+        'context window',
+        'maximum context',
+        'too many tokens',
+        'prompt is too long',
+        'input is too long',
+        'reduce the length',
+    ];
+
+    private const MODERATION_PATTERNS = ['moderation', 'flagged'];
+
+    /**
+     * Classifies a non-2xx HTTP response.
+     *
+     * @param string $body Raw response body (only the error message is kept).
+     */
+    public static function fromHttpResponse(int $status, string $body, ?string $retryAfterHeader, float $now): LlmException
+    {
+        $message = self::extractMessage($body) ?? \sprintf('HTTP %d', $status);
+
+        return new LlmException(
+            self::kindFor($status, $message),
+            self::format($status, $message),
+            $status,
+            self::parseRetryAfter($retryAfterHeader, $now),
+        );
+    }
+
+    /**
+     * Classifies an `error` object that came inside a 200 response or a stream chunk.
+     *
+     * @param array<array-key, mixed> $error
+     */
+    public static function fromErrorObject(array $error): LlmException
+    {
+        $status = Json::int($error, 'code');
+        $message = Json::string($error, 'message') ?? 'Provider error';
+        $kind = $status !== null
+            ? self::kindFor($status, $message)
+            : (self::kindForMessage($message) ?? ErrorKind::Unknown);
+
+        return new LlmException($kind, self::format($status, $message), $status);
+    }
+
+    public static function fromHttpException(HttpException $e): LlmException
+    {
+        return $e instanceof TimeoutException
+            ? new LlmException(ErrorKind::Timeout, 'Request timed out: ' . $e->getMessage(), null, null, $e)
+            : new LlmException(ErrorKind::Network, 'Network error: ' . $e->getMessage(), null, null, $e);
+    }
+
+    /**
+     * A failure while reading a response body. The HTTP client wraps the cause (e.g. an inactivity timeout) into a
+     * {@see StreamException}; the cause decides the kind.
+     */
+    public static function fromStreamException(StreamException $e): LlmException
+    {
+        $cause = $e->getPrevious();
+        if ($cause instanceof HttpException) {
+            return self::fromHttpException($cause);
+        }
+
+        return new LlmException(ErrorKind::Network, 'Network error: ' . $e->getMessage(), null, null, $e);
+    }
+
+    public static function kindFor(int $status, string $message): ErrorKind
+    {
+        $byMessage = self::kindForMessage($message);
+
+        return match (true) {
+            $status === 401 => ErrorKind::Auth,
+            $status === 402 => ErrorKind::InsufficientCredits,
+            $status === 403 => $byMessage === ErrorKind::ContentFilter ? ErrorKind::ContentFilter : ErrorKind::Auth,
+            $status === 408 => ErrorKind::Timeout,
+            $status === 413 => ErrorKind::ContextLength,
+            $status === 429 => ErrorKind::RateLimited,
+            $status >= 400 && $status < 500 => $byMessage === ErrorKind::ContextLength ? ErrorKind::ContextLength : ErrorKind::BadRequest,
+            $status >= 500 && $status < 600 => ErrorKind::Server,
+            default => ErrorKind::Unknown,
+        };
+    }
+
+    /**
+     * Parses `Retry-After`: delta-seconds or an HTTP date. Returns seconds from now, never negative.
+     */
+    public static function parseRetryAfter(?string $value, float $now): ?float
+    {
+        if ($value === null) {
+            return null;
+        }
+        $value = \trim($value);
+        if ($value === '') {
+            return null;
+        }
+        if (\is_numeric($value)) {
+            return \max(0.0, (float) $value);
+        }
+        $date = \DateTimeImmutable::createFromFormat(\DateTimeInterface::RFC7231, $value);
+        if ($date === false) {
+            return null;
+        }
+
+        return \max(0.0, (float) $date->getTimestamp() - $now);
+    }
+
+    private static function kindForMessage(string $message): ?ErrorKind
+    {
+        $lower = \strtolower($message);
+        foreach (self::CONTEXT_PATTERNS as $pattern) {
+            if (\str_contains($lower, $pattern)) {
+                return ErrorKind::ContextLength;
+            }
+        }
+        foreach (self::MODERATION_PATTERNS as $pattern) {
+            if (\str_contains($lower, $pattern)) {
+                return ErrorKind::ContentFilter;
+            }
+        }
+
+        return null;
+    }
+
+    private static function extractMessage(string $body): ?string
+    {
+        if ($body === '') {
+            return null;
+        }
+        try {
+            $decoded = \json_decode($body, true, 64, \JSON_THROW_ON_ERROR);
+        } catch (\JsonException) {
+            return null; // not JSON (e.g. an HTML page from a proxy): do not echo it
+        }
+        if (!\is_array($decoded)) {
+            return null;
+        }
+        return Json::string(Json::object($decoded, 'error'), 'message') ?? Json::string($decoded, 'error');
+    }
+
+    private static function format(?int $status, string $message): string
+    {
+        $message = \preg_replace('/\s+/', ' ', $message) ?? $message;
+        if (\strlen($message) > self::MAX_MESSAGE_LENGTH) {
+            $message = \mb_strcut($message, 0, self::MAX_MESSAGE_LENGTH, 'UTF-8') . '...';
+        }
+
+        return $status === null ? 'OpenRouter: ' . $message : \sprintf('OpenRouter (%d): %s', $status, $message);
+    }
+}

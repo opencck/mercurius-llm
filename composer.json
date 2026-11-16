@@ -1,0 +1,50 @@
+{
+    "name": "opencck/mercurius-llm",
+    "description": "Unified async interface for calling large language models (OpenRouter adapter) on AMPHP v3",
+    "type": "library",
+    "license": "MIT",
+    "keywords": ["llm", "openrouter", "amphp", "async", "ai"],
+    "require": {
+        "php": ">=8.2",
+        "ext-json": "*",
+        "ext-mbstring": "*",
+        "amphp/amp": "^3",
+        "amphp/byte-stream": "^2",
+        "amphp/http-client": "^5"
+    },
+    "require-dev": {
+        "amphp/phpunit-util": "^3",
+        "phpstan/phpstan": "^2",
+        "phpunit/phpunit": "^9.6",
+        "psalm/plugin-phpunit": "^0.22.2",
+        "vimeo/psalm": "^6"
+    },
+    "autoload": {
+        "psr-4": {
+            "Mercurius\\Llm\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Mercurius\\Llm\\Test\\": "test/"
+        }
+    },
+    "config": {
+        "sort-packages": true,
+        "platform": {
+            "php": "8.2.27"
+        },
+        "allow-plugins": {}
+    },
+    "scripts": {
+        "test": "php -d zend.assertions=1 -d assert.exception=1 vendor/bin/phpunit --exclude-group integration",
+        "test-integration": "php -d zend.assertions=1 -d assert.exception=1 vendor/bin/phpunit --group integration",
+        "phpstan": "phpstan analyse --no-progress --memory-limit=1G",
+        "psalm": "psalm --no-progress --show-info=false",
+        "check": [
+            "@test",
+            "@phpstan",
+            "@psalm"
+        ]
+    }
+}
