@@ -9,6 +9,7 @@ use Mercurius\Llm\ChatResponse;
 use Mercurius\Llm\ErrorKind;
 use Mercurius\Llm\FinishReason;
 use Mercurius\Llm\LlmException;
+use Mercurius\Llm\MediaPart;
 use Mercurius\Llm\Message;
 use Mercurius\Llm\Role;
 use Mercurius\Llm\ToolCall;
@@ -166,8 +167,11 @@ final class PayloadMapper
             default:
                 // ref: references/hermes-agent/agent/prompt_caching.py@e96221fa:L50-L54 (_text_part) — a marker goes on a text part,
                 //      so a marked string becomes one part
-                $out['content'] = $message->cacheMark
-                    ? [['type' => 'text', 'text' => $message->content, 'cache_control' => ['type' => 'ephemeral']]]
+                $text = ['type' => 'text', 'text' => $message->content] + ($message->cacheMark ? ['cache_control' => ['type' => 'ephemeral']] : []);
+                $out['content'] = $message->cacheMark || $message->media !== []
+                    ? [$text, ...\array_map(static fn (MediaPart $m): array => $m->kind === MediaPart::VIDEO
+                        ? ['type' => 'video_url', 'video_url' => ['url' => $m->dataUrl()]]
+                        : ['type' => 'image_url', 'image_url' => ['url' => $m->dataUrl()]], $message->media)]
                     : $message->content;
         }
 

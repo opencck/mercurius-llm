@@ -15,8 +15,12 @@ final class Message
     /** @var list<ToolCall> */
     public readonly array $toolCalls;
 
+    /** @var list<MediaPart> images and videos sent with the text of a user message */
+    public readonly array $media;
+
     /**
      * @param list<ToolCall> $toolCalls
+     * @param list<MediaPart> $media
      */
     public function __construct(
         public readonly Role $role,
@@ -25,7 +29,12 @@ final class Message
         public readonly ?string $toolCallId = null,
         /** a cache breakpoint at the end of this message, for providers that cache only where asked */
         public readonly bool $cacheMark = false,
+        array $media = [],
     ) {
+        if ($media !== [] && $role !== Role::User) {
+            throw new \InvalidArgumentException('Only user messages may carry images and videos');
+        }
+        $this->media = $media;
         if ($toolCalls !== [] && $role !== Role::Assistant) {
             throw new \InvalidArgumentException('Only assistant messages may contain tool calls');
         }
@@ -43,7 +52,7 @@ final class Message
      */
     public function cached(): self
     {
-        return new self($this->role, $this->content, $this->toolCalls, $this->toolCallId, true);
+        return new self($this->role, $this->content, $this->toolCalls, $this->toolCallId, true, $this->media);
     }
 
     public static function system(string $content): self
@@ -51,9 +60,12 @@ final class Message
         return new self(Role::System, $content);
     }
 
-    public static function user(string $content): self
+    /**
+     * @param list<MediaPart> $media images and videos sent with the text
+     */
+    public static function user(string $content, array $media = []): self
     {
-        return new self(Role::User, $content);
+        return new self(Role::User, $content, media: $media);
     }
 
     /**

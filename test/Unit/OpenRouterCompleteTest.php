@@ -9,6 +9,7 @@ use Mercurius\Llm\ChatRequest;
 use Mercurius\Llm\ErrorKind;
 use Mercurius\Llm\FinishReason;
 use Mercurius\Llm\LlmException;
+use Mercurius\Llm\MediaPart;
 use Mercurius\Llm\Message;
 use Mercurius\Llm\OpenRouter\OpenRouterClient;
 use Mercurius\Llm\Test\Support\FakeHttp;
@@ -113,6 +114,21 @@ final class OpenRouterCompleteTest extends AsyncTestCase
             $messages[0],
         );
         self::assertSame(['role' => 'user', 'content' => 'hi'], $messages[1], 'an unmarked message stays a string');
+    }
+
+    public function testAMessageWithMediaGoesAsTextAndDataUrlParts(): void
+    {
+        $http = (new FakeHttp())->respond(200, self::OK_BODY);
+        $client = new OpenRouterClient($http->client(), 'sk-secret');
+        $client->complete(new ChatRequest('google/vision', [Message::user('what is on it?', [MediaPart::image('image/png', 'PNG'), MediaPart::video('video/mp4', 'MP4')])]));
+
+        $messages = $http->lastPayload()['messages'];
+        self::assertIsArray($messages);
+        self::assertSame(['role' => 'user', 'content' => [
+            ['type' => 'text', 'text' => 'what is on it?'],
+            ['type' => 'image_url', 'image_url' => ['url' => 'data:image/png;base64,' . \base64_encode('PNG')]],
+            ['type' => 'video_url', 'video_url' => ['url' => 'data:video/mp4;base64,' . \base64_encode('MP4')]],
+        ]], $messages[0]);
     }
 
     public function testResponseParsing(): void
