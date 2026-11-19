@@ -41,6 +41,21 @@ final class OpenRouterCatalog
     }
 
     /**
+     * The models whose tool calls OpenRouter saw pass their schemas at least this share of the time (0..1). The share
+     * itself is not in the catalog: the filter of the endpoint gives the models above it.
+     *
+     * @return list<string> model ids
+     * @throws LlmException
+     */
+    public function toolReliable(float $minShare, ?Cancellation $cancellation = null): array
+    {
+        $share = \rtrim(\rtrim(\sprintf('%.4F', \max(0.0, \min(1.0, $minShare))), '0'), '.');
+        $response = $this->transport->send('GET', '/models?min_tool_success_rate=' . $share, null, 'application/json', $cancellation);
+
+        return \array_map(static fn (ModelInfo $m): string => $m->id, self::parse($this->transport->decodeJson($response, $cancellation)));
+    }
+
+    /**
      * Parses a decoded `/models` response. Entries without an id are skipped.
      *
      * @param array<array-key, mixed> $data

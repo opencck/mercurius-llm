@@ -71,6 +71,16 @@ final class OpenRouterCatalogTest extends AsyncTestCase
         self::assertSame([], $auto->supportedParameters);
     }
 
+    public function testModelsThatCallToolsWellAreAskedByTheirShare(): void
+    {
+        $http = (new FakeHttp())->respond(200, '{"data":[{"id":"a/good"},{"id":"b/fine"},{"name":"no id"}]}');
+
+        $ids = (new OpenRouterCatalog($http->client()))->toolReliable(0.9);
+
+        self::assertSame(['a/good', 'b/fine'], $ids);
+        self::assertSame('https://openrouter.ai/api/v1/models?min_tool_success_rate=0.9', (string) $http->requests[0]->getUri());
+    }
+
     public function testWorksWithoutKey(): void
     {
         $http = (new FakeHttp())->respond(200, '{"data":[]}');
