@@ -2,7 +2,7 @@
 
 **English** | [Русский](README.ru.md)
 
-A unified interface for calling large language models: messages, tools, streaming, token and cost accounting, errors and retries. Adapters: OpenRouter and the OpenAI API; other providers are added as adapters without changing the interface.
+A unified interface for calling large language models: messages, tools, streaming, token and cost accounting, errors and retries. Adapters: OpenRouter, the OpenAI API and the Anthropic Messages API; other providers are added as adapters without changing the interface.
 
 Part of [Mercurius](https://github.com/opencck/mercurius), an autonomous personal agent. The package does not depend on the Mercurius application and can be used on its own.
 
@@ -78,6 +78,7 @@ The calls block only the current fiber: run them inside the Revolt event loop (`
 | `RetryingClient` | Decorator: retries retryable errors with exponential backoff and full jitter, honours `Retry-After`, never retries a stream after its first event |
 | `OpenRouter\OpenRouterClient` | OpenRouter Chat Completions adapter: SSE parsing (keep-alive comments, `[DONE]`, mid-stream errors, usage chunk), error mapping, timeouts and size limits |
 | `OpenAI\OpenAIClient` | OpenAI API Chat Completions adapter on the same protocol code: `max_completion_tokens`, a `reasoning_effort` string (`none` when the request has tools — Chat Completions refuses function tools with reasoning on), no `temperature` when a reasoning effort is set, no OpenRouter attribution headers; the API reports no cost, so `Usage::$costUsd` is null |
+| `Anthropic\AnthropicClient` | Anthropic Messages API adapter (`POST /v1/messages`) over the AMPHP HTTP client, not the blocking official SDK: the key in `x-api-key`, `anthropic-version: 2026-10-21`; system messages go as top-level text blocks, a cache mark becomes `cache_control`, same-role turns merge so the roles alternate, tool results go in the user turn, pictures as base64 blocks (a video is a `BadRequest`); the reasoning effort goes to `output_config.effort`, the temperature is not sent (that API version refuses it); `max_tokens` defaults to 16000; thinking comes back as reasoning text and is not sent back with the history; HTTP 529 (overloaded) and an `error` stream event are retryable `Server` errors; the API reports no cost, so `Usage::$costUsd` is null |
 | `ModelCatalog\OpenAICatalog` | `fetch(): list<ModelInfo>`: the models of the key (`GET /v1/models`) described by the public OpenRouter catalog (`openai/<id>`); models it does not know (embeddings, speech) are left out; a model that always reasons is listed without tools |
 | `ModelCatalog\OpenRouterCatalog`, `ModelInfo` | `fetch(): list<ModelInfo>` from `GET /models`: context length, prices per token, modalities, supported parameters, Artificial Analysis indices (intelligence, coding, agentic) when published, `estimateCost(Usage)` |
 

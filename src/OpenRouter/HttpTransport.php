@@ -38,6 +38,9 @@ final class HttpTransport
         private readonly float $inactivityTimeout,
         private readonly float $transferTimeout,
         public readonly int $maxResponseBytes,
+        /** @var array<non-empty-string, string> Extra headers of every request, e.g. a key in a provider's own header. */
+        #[\SensitiveParameter]
+        private readonly array $headers = [],
     ) {
         $this->baseUrl = \rtrim($baseUrl, '/');
     }
@@ -61,6 +64,9 @@ final class HttpTransport
         }
         if ($this->appUrl !== null && $this->appUrl !== '') {
             $request->setHeader('http-referer', $this->appUrl);
+        }
+        foreach ($this->headers as $name => $value) {
+            $request->setHeader($name, $value);
         }
         if ($json !== null) {
             try {
