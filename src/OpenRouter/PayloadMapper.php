@@ -164,7 +164,11 @@ final class PayloadMapper
                 $out['content'] = $message->content;
                 break;
             default:
-                $out['content'] = $message->content;
+                // ref: references/hermes-agent/agent/prompt_caching.py@e96221fa:L50-L54 (_text_part) — a marker goes on a text part,
+                //      so a marked string becomes one part
+                $out['content'] = $message->cacheMark
+                    ? [['type' => 'text', 'text' => $message->content, 'cache_control' => ['type' => 'ephemeral']]]
+                    : $message->content;
         }
 
         return $out;

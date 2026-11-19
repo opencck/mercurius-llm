@@ -100,6 +100,21 @@ final class OpenRouterCompleteTest extends AsyncTestCase
         self::assertNull($http->requests[0]->getHeader('x-title'));
     }
 
+    public function testAMessageMarkedForTheCacheGoesAsATextPartWithTheMark(): void
+    {
+        $http = (new FakeHttp())->respond(200, self::OK_BODY);
+        $client = new OpenRouterClient($http->client(), 'sk-secret');
+        $client->complete(new ChatRequest('anthropic/claude', [Message::system('rules')->cached(), Message::user('hi')]));
+
+        $messages = $http->lastPayload()['messages'];
+        self::assertIsArray($messages);
+        self::assertSame(
+            ['role' => 'system', 'content' => [['type' => 'text', 'text' => 'rules', 'cache_control' => ['type' => 'ephemeral']]]],
+            $messages[0],
+        );
+        self::assertSame(['role' => 'user', 'content' => 'hi'], $messages[1], 'an unmarked message stays a string');
+    }
+
     public function testResponseParsing(): void
     {
         $http = (new FakeHttp())->respond(200, self::OK_BODY);

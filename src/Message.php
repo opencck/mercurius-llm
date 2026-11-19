@@ -23,6 +23,8 @@ final class Message
         public readonly string $content = '',
         array $toolCalls = [],
         public readonly ?string $toolCallId = null,
+        /** a cache breakpoint at the end of this message, for providers that cache only where asked */
+        public readonly bool $cacheMark = false,
     ) {
         if ($toolCalls !== [] && $role !== Role::Assistant) {
             throw new \InvalidArgumentException('Only assistant messages may contain tool calls');
@@ -34,6 +36,14 @@ final class Message
             throw new \InvalidArgumentException('Only tool messages may reference a tool call id');
         }
         $this->toolCalls = $toolCalls;
+    }
+
+    /**
+     * The same message with a cache breakpoint at its end. Providers that cache on their own ignore it.
+     */
+    public function cached(): self
+    {
+        return new self($this->role, $this->content, $this->toolCalls, $this->toolCallId, true);
     }
 
     public static function system(string $content): self
