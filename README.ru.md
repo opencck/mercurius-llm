@@ -2,7 +2,7 @@
 
 [English](README.md) | **Русский**
 
-Единый интерфейс вызова больших языковых моделей: сообщения, инструменты, потоковый ответ, учёт токенов и стоимости, ошибки и повторы. Адаптеры: OpenRouter, OpenAI API, Anthropic Messages API и Claude в Amazon Bedrock; другие провайдеры добавляются адаптерами без изменения интерфейса.
+Единый интерфейс вызова больших языковых моделей: сообщения, инструменты, потоковый ответ, учёт токенов и стоимости, ошибки и повторы. Адаптеры: OpenRouter, OpenAI API (Chat Completions и Responses), Anthropic Messages API и Claude в Amazon Bedrock; другие провайдеры добавляются адаптерами без изменения интерфейса.
 
 Часть проекта [Меркурий (Mercurius)](https://github.com/opencck/mercurius) — автономного персонального агента. Пакет не зависит от приложения Меркурия и может использоваться отдельно.
 
@@ -82,7 +82,8 @@ foreach ($llm->stream($request) as $event) {
 | `AnthropicClient::bedrock()` | Claude в Amazon Bedrock: тот же Messages API по адресу `https://bedrock-mantle.{region}.api.aws/anthropic` с ключом Bedrock API (токен на предъявителя) вместо подписи SigV4; модели вида `anthropic.claude-opus-5-5`; регион проверяется, прежде чем стать именем хоста |
 | `ModelCatalog\BedrockCatalog` | `fetch(): list<ModelInfo>`: адреса списка моделей у Bedrock здесь нет, поэтому это модели Claude из каталога OpenRouter в написании Bedrock (`anthropic/claude-opus-5.5` — это `anthropic.claude-opus-5-5`); доступ к каждой решает Bedrock |
 | `ModelCatalog\AnthropicCatalog` | `fetch(): list<ModelInfo>`: модели ключа (`GET /v1/models`), описанные открытым каталогом OpenRouter, где версии пишутся через точку (`claude-opus-5-5` — это `anthropic/claude-opus-5.5`, идентификатор с датой ищется без даты); модели, которых там нет, не попадают |
-| `ModelCatalog\OpenAICatalog` | `fetch(): list<ModelInfo>`: модели ключа (`GET /v1/models`), описанные открытым каталогом OpenRouter (`openai/<id>`); модели, которых там нет (эмбеддинги, речь), не попадают; модель, которая рассуждает всегда, — без инструментов |
+| `OpenAI\ResponsesClient` | Адаптер OpenAI Responses API (`POST /v1/responses`) — API моделей codex и моделей, которые рассуждают всегда: инструменты-функции они принимают здесь. Системные сообщения — `instructions`, беседа — элементами (`message`, `function_call`, `function_call_output`), картинки — `input_image`, `store: false`, усилие — `reasoning.effort` (`max` становится `xhigh`), `max_output_tokens`; неполный ответ — `Length` или `ContentFilter`; кешированные входные токены — отдельной корзиной; событие `response.failed` или `error` — классифицированная ошибка |
+| `ModelCatalog\OpenAICatalog` | `fetch(): list<ModelInfo>`: модели ключа (`GET /v1/models`), описанные открытым каталогом OpenRouter (`openai/<id>`); модели, которых там нет (эмбеддинги, речь), не попадают; модель, которая рассуждает всегда, — без инструментов. С `responses: true` — модели Responses API: семейства codex и `-pro` остаются, модель, которая рассуждает всегда, — с инструментами |
 | `ModelCatalog\OpenRouterCatalog`, `ModelInfo` | `fetch(): list<ModelInfo>` из `GET /models`: размер контекста, цены за токен, модальности, поддерживаемые параметры, индексы Artificial Analysis (интеллект, код, агентность), если опубликованы, `estimateCost(Usage)` |
 
 Замечания:

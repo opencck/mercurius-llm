@@ -2,7 +2,7 @@
 
 **English** | [Русский](README.ru.md)
 
-A unified interface for calling large language models: messages, tools, streaming, token and cost accounting, errors and retries. Adapters: OpenRouter, the OpenAI API, the Anthropic Messages API and Claude in Amazon Bedrock; other providers are added as adapters without changing the interface.
+A unified interface for calling large language models: messages, tools, streaming, token and cost accounting, errors and retries. Adapters: OpenRouter, the OpenAI API (Chat Completions and Responses), the Anthropic Messages API and Claude in Amazon Bedrock; other providers are added as adapters without changing the interface.
 
 Part of [Mercurius](https://github.com/opencck/mercurius), an autonomous personal agent. The package does not depend on the Mercurius application and can be used on its own.
 
@@ -82,7 +82,8 @@ The calls block only the current fiber: run them inside the Revolt event loop (`
 | `AnthropicClient::bedrock()` | Claude in Amazon Bedrock: the same Messages API at `https://bedrock-mantle.{region}.api.aws/anthropic` with a Bedrock API key (bearer token) instead of SigV4 signing; model ids like `anthropic.claude-opus-5-5`; the region is checked before it becomes a host name |
 | `ModelCatalog\BedrockCatalog` | `fetch(): list<ModelInfo>`: Bedrock has no models endpoint there, so the Claude models of the OpenRouter catalog in Bedrock spelling (`anthropic/claude-opus-5.5` is `anthropic.claude-opus-5-5`); access to each is decided by Bedrock |
 | `ModelCatalog\AnthropicCatalog` | `fetch(): list<ModelInfo>`: the models of the key (`GET /v1/models`) described by the public OpenRouter catalog, which spells versions with dots (`claude-opus-5-5` is `anthropic/claude-opus-5.5`, a dated id is looked up without the date); models it does not know are left out |
-| `ModelCatalog\OpenAICatalog` | `fetch(): list<ModelInfo>`: the models of the key (`GET /v1/models`) described by the public OpenRouter catalog (`openai/<id>`); models it does not know (embeddings, speech) are left out; a model that always reasons is listed without tools |
+| `OpenAI\ResponsesClient` | OpenAI Responses API adapter (`POST /v1/responses`), the API of the codex models and of the models that always reason, which take function tools here: system messages become `instructions`, the conversation goes as items (`message`, `function_call`, `function_call_output`), pictures as `input_image`, `store: false`, effort in `reasoning.effort` (`max` becomes `xhigh`), `max_output_tokens`; an incomplete answer is `Length` or `ContentFilter`; cached input tokens are a bucket of their own; a `response.failed` or `error` event is a classified error |
+| `ModelCatalog\OpenAICatalog` | `fetch(): list<ModelInfo>`: the models of the key (`GET /v1/models`) described by the public OpenRouter catalog (`openai/<id>`); models it does not know (embeddings, speech) are left out; a model that always reasons is listed without tools. With `responses: true` — the models of the Responses API: the codex and `-pro` families stay and a model that always reasons keeps its tools |
 | `ModelCatalog\OpenRouterCatalog`, `ModelInfo` | `fetch(): list<ModelInfo>` from `GET /models`: context length, prices per token, modalities, supported parameters, Artificial Analysis indices (intelligence, coding, agentic) when published, `estimateCost(Usage)` |
 
 Notes:

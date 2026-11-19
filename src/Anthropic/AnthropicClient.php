@@ -4,20 +4,15 @@ declare(strict_types=1);
 
 namespace Mercurius\Llm\Anthropic;
 
-use Amp\ByteStream\StreamException;
 use Amp\Cancellation;
-use Amp\CancelledException;
-use Amp\CompositeCancellation;
 use Amp\Http\Client\HttpClient;
-use Amp\TimeoutCancellation;
 use Mercurius\Llm\ChatRequest;
 use Mercurius\Llm\ChatResponse;
 use Mercurius\Llm\ErrorKind;
 use Mercurius\Llm\LlmClient;
 use Mercurius\Llm\LlmException;
-use Mercurius\Llm\OpenRouter\ErrorClassifier;
+use Mercurius\Llm\OpenRouter\EventStream;
 use Mercurius\Llm\OpenRouter\HttpTransport;
-use Mercurius\Llm\OpenRouter\SseParser;
 use Mercurius\Llm\StreamEnd;
 use Mercurius\Llm\StreamEvent;
 
@@ -125,57 +120,14 @@ final class AnthropicClient implements LlmClient
             throw self::named($e);
         }
 
-        $body = $response->getBody();
-        $parser = new SseParser();
         $accumulator = new MessagesAccumulator();
-        // ref: references/hermes-agent/agent/chat_completion_helpers.py@e96221fa:L2835-L2842 (_count_chunk) — only
-        //      events re-arm the stall timer; the same loop as the Chat Completions stream.
-        $deadline = \microtime(true) + $this->firstEventTimeout;
-        $limit = $this->firstEventTimeout;
-
-        try {
-            while (!$accumulator->finished()) {
-                $left = $deadline - \microtime(true);
-                if ($left <= 0) {
-                    throw self::stalled($limit);
-                }
-                $timeout = new TimeoutCancellation($left);
-                try {
-                    $chunk = $body->read($cancellation === null ? $timeout : new CompositeCancellation($cancellation, $timeout));
-                } catch (StreamException $e) {
-                    throw self::named(ErrorClassifier::fromStreamException($e));
-                } catch (CancelledException $e) {
-                    if (self::requested($cancellation)) {
-                        throw $e;
-                    }
-                    throw self::stalled($limit);
-                }
-
-                try {
-                    $payloads = $chunk === null ? \array_filter([$parser->finish()], static fn(?string $p): bool => $p !== null) : $parser->push($chunk);
-                } catch (LlmException $e) {
-                    throw self::named($e);
-                }
-                if ($payloads !== []) {
-                    $deadline = \microtime(true) + $this->eventTimeout;
-                    $limit = $this->eventTimeout;
-                }
-                foreach ($payloads as $payload) {
-                    try {
-                        $events = $accumulator->push(HttpTransport::decode($payload));
-                    } catch (LlmException $e) {
-                        throw self::named($e);
-                    }
-                    foreach ($events as $event) {
-                        yield $event;
-                    }
-                }
-                if ($chunk === null) {
-                    break;
-                }
+        foreach (EventStream::events($response, 'Anthropic', $this->firstEventTimeout, $this->eventTimeout, $cancellation) as $data) {
+            foreach ($accumulator->push($data) as $event) {
+                yield $event;
             }
-        } finally {
-            $body->close();
+            if ($accumulator->finished()) {
+                break;
+            }
         }
 
         if (!$accumulator->finished()) {
@@ -185,24 +137,8 @@ final class AnthropicClient implements LlmClient
         yield new StreamEnd($accumulator->response());
     }
 
-    /** Whether the caller (not the stall timer) cancelled. */
-    private static function requested(?Cancellation $cancellation): bool
-    {
-        return $cancellation !== null && $cancellation->isRequested();
-    }
-
-    private static function stalled(float $seconds): LlmException
-    {
-        return new LlmException(ErrorKind::Timeout, \sprintf('Anthropic: no stream events for %d s', (int) \ceil($seconds)));
-    }
-
-    /** The shared transport says "OpenRouter" in its errors; here it is Anthropic. */
     private static function named(LlmException $e): LlmException
     {
-        if (!\str_starts_with($e->getMessage(), 'OpenRouter')) {
-            return $e;
-        }
-
-        return new LlmException($e->kind, 'Anthropic' . \substr($e->getMessage(), \strlen('OpenRouter')), $e->status, $e->retryAfter, $e);
+        return EventStream::named('Anthropic', $e);
     }
 }

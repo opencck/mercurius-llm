@@ -26,6 +26,9 @@ final class OpenAICatalog
      */
     private const NOT_CHAT = '/(codex|-pro(-|$)|search|deep-research|realtime|audio|transcribe|tts|image)/i';
 
+    /** Families that are not text models at all: the Responses API does not serve them either. */
+    private const NOT_TEXT = '/(search|deep-research|realtime|audio|transcribe|tts|image)/i';
+
     private readonly HttpTransport $transport;
 
     public function __construct(
@@ -36,6 +39,11 @@ final class OpenAICatalog
         string $baseUrl = OpenAIClient::DEFAULT_BASE_URL,
         float $timeout = 60.0,
         int $maxResponseBytes = 16 * 1024 * 1024,
+        /**
+         * The models of the Responses API ({@see \Mercurius\Llm\OpenAI\ResponsesClient}): the codex and `-pro`
+         * families are kept, and a model that always reasons keeps its tools.
+         */
+        private readonly bool $responses = false,
     ) {
         $this->transport = new HttpTransport($http, $apiKey, $baseUrl, null, null, \min(10.0, $timeout), $timeout, $timeout, $maxResponseBytes);
     }
@@ -61,12 +69,12 @@ final class OpenAICatalog
         $models = [];
         foreach ($ids as $id) {
             $ref = $known[self::REFERENCE_PREFIX . $id] ?? null;
-            if ($ref === null || \preg_match(self::NOT_CHAT, $id) === 1) {
+            if ($ref === null || \preg_match($this->responses ? self::NOT_TEXT : self::NOT_CHAT, $id) === 1) {
                 continue;
             }
             // Chat Completions of the OpenAI API take function tools only with reasoning off: a model that always
             // reasons gets no tools there (it would need /v1/responses).
-            $parameters = $ref->reasoningMandatory
+            $parameters = $ref->reasoningMandatory && !$this->responses
                 ? \array_values(\array_diff($ref->supportedParameters, ['tools', 'tool_choice']))
                 : $ref->supportedParameters;
             $models[] = new ModelInfo(

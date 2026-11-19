@@ -50,4 +50,21 @@ final class OpenAICatalogTest extends AsyncTestCase
         self::assertFalse($models[1]->supportsTools(), 'always reasoning: no tools through Chat Completions');
         self::assertTrue($models[1]->reasoningMandatory);
     }
+
+    public function testTheResponsesApiKeepsTheCodexFamilyAndToolsOfModelsThatAlwaysReason(): void
+    {
+        $http = (new FakeHttp())
+            ->respond(200, '{"data":[{"id":"gpt-6.1-codex"},{"id":"gpt-6.1-sol"},{"id":"gpt-6-tts"}]}')
+            ->respond(200, '{"data":['
+                . '{"id":"openai/gpt-6.1-codex","name":"codex","context_length":1000,"pricing":{"prompt":"0.000001","completion":"0.000005"},"supported_parameters":["tools"]},'
+                . '{"id":"openai/gpt-6.1-sol","name":"sol","context_length":1000,"pricing":{"prompt":"0.000002","completion":"0.00001"},"supported_parameters":["tools","reasoning"],"reasoning":{"mandatory":true}},'
+                . '{"id":"openai/gpt-6-tts","name":"tts","context_length":1000,"pricing":{"prompt":"0.000001","completion":"0.000001"}}'
+                . ']}');
+        $client = $http->client();
+
+        $models = (new OpenAICatalog($client, 'sk-proj', new OpenRouterCatalog($client), responses: true))->fetch();
+
+        self::assertSame(['gpt-6.1-codex', 'gpt-6.1-sol'], \array_map(static fn($m) => $m->id, $models));
+        self::assertTrue($models[1]->supportsTools());
+    }
 }
