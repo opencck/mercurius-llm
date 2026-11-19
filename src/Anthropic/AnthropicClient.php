@@ -76,6 +76,31 @@ final class AnthropicClient implements LlmClient
         );
     }
 
+    /**
+     * Claude in Amazon Bedrock: the same Messages API at `https://bedrock-mantle.{region}.api.aws/anthropic`, with a
+     * Bedrock API key (a bearer token) in `x-api-key` instead of SigV4 signing, and model ids like
+     * `anthropic.claude-opus-5-5`.
+     *
+     * ref: references/hermes-agent/agent/bedrock_adapter.py@e96221fa:L239-L274 (bedrock_openai_base_url,
+     *      resolve_bedrock_bearer_token) — the Mantle host by region and the bearer token of AWS_BEARER_TOKEN_BEDROCK;
+     *      hermes also signs with SigV4 through boto3, which needs the AWS SDK and is left out.
+     */
+    public static function bedrock(
+        HttpClient $http,
+        #[\SensitiveParameter]
+        string $token,
+        string $region,
+        float $firstEventTimeout = 240.0,
+        float $eventTimeout = 120.0,
+    ): self {
+        // The region becomes a host name: only a region name may go there.
+        if (\preg_match('/^[a-z]{2}(-[a-z]+)+-\d{1,2}$/', $region) !== 1) {
+            throw new \InvalidArgumentException('Bedrock region must look like us-east-1');
+        }
+
+        return new self($http, $token, \sprintf('https://bedrock-mantle.%s.api.aws/anthropic/v1', $region), firstEventTimeout: $firstEventTimeout, eventTimeout: $eventTimeout);
+    }
+
     #[\Override]
     public function complete(ChatRequest $request, ?Cancellation $cancellation = null): ChatResponse
     {
