@@ -2,6 +2,8 @@
 
 [English](README.md) | [Русский](README.ru.md) | **中文**
 
+> 本文由模型翻译，尚未经人工审校；如有出入，以英文版为准。
+
 调用大语言模型的统一接口：消息、工具、流式输出、token 和成本核算、错误与重试。适配器：OpenRouter、OpenAI API（Chat Completions 和 Responses）、Anthropic Messages API 以及 Amazon Bedrock 中的 Claude；其他提供商以适配器的形式添加，无需改动接口。
 
 [Mercurius](https://github.com/opencck/mercurius) 的一部分，一个自主的个人智能体。该包不依赖 Mercurius 应用，可以单独使用。
