@@ -1,6 +1,6 @@
 # mercurius-llm
 
-[English](README.md) | **Русский**
+[English](README.md) | **Русский** | [中文](README.cn.md)
 
 Единый интерфейс вызова больших языковых моделей: сообщения, инструменты, потоковый ответ, учёт токенов и стоимости, ошибки и повторы. Адаптеры: OpenRouter, OpenAI API (Chat Completions и Responses), Anthropic Messages API и Claude в Amazon Bedrock; другие провайдеры добавляются адаптерами без изменения интерфейса.
 

@@ -1,6 +1,6 @@
 # mercurius-llm
 
-**English** | [Русский](README.ru.md)
+**English** | [Русский](README.ru.md) | [中文](README.cn.md)
 
 A unified interface for calling large language models: messages, tools, streaming, token and cost accounting, errors and retries. Adapters: OpenRouter, the OpenAI API (Chat Completions and Responses), the Anthropic Messages API and Claude in Amazon Bedrock; other providers are added as adapters without changing the interface.
 
