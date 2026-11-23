@@ -26,6 +26,12 @@ final class ChatResponse
         public readonly string $id,
         /** Reasoning text if the provider returned it; empty otherwise. */
         public readonly string $reasoning = '',
+        /** Provider-side id of the HTTP request (not of the generation), for support; null when there is none. */
+        public readonly ?string $requestId = null,
+        /** Why the model refused, as the provider classed it (e.g. "cyber"); null when it did not refuse or did not say. */
+        public readonly ?string $refusalCategory = null,
+        /** The provider's explanation of a refusal; null when there is none. */
+        public readonly ?string $refusalExplanation = null,
     ) {
         $this->toolCalls = $toolCalls;
     }

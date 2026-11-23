@@ -104,7 +104,12 @@ final class HttpTransport
             $body->close();
         }
 
-        throw ErrorClassifier::fromHttpResponse($status, $text, $response->getHeader('retry-after'), \microtime(true));
+        throw ErrorClassifier::fromHttpResponse($status, $text, $response->getHeader('retry-after'), \microtime(true), [
+            'request-id' => $response->getHeader('request-id'),
+            'x-request-id' => $response->getHeader('x-request-id'),
+            'anthropic-ratelimit-unified-status' => $response->getHeader('anthropic-ratelimit-unified-status'),
+            'anthropic-ratelimit-unified-reset' => $response->getHeader('anthropic-ratelimit-unified-reset'),
+        ]);
     }
 
     /**

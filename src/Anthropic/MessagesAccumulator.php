@@ -30,6 +30,8 @@ final class MessagesAccumulator
     private string $reasoning = '';
     private Usage $usage;
     private ?string $stopReason = null;
+    private ?string $refusalCategory = null;
+    private ?string $refusalExplanation = null;
     private bool $finished = false;
 
     /** @var array<int, int> Content block index → tool call number. */
@@ -38,8 +40,14 @@ final class MessagesAccumulator
     /** @var array<int, array{id: string, name: string, arguments: string}> Tool call number → the call so far. */
     private array $tools = [];
 
-    public function __construct()
-    {
+    /**
+     * @param ?string $requestId The id of the HTTP request, from its header.
+     * @param string $provider The name the errors are worded with.
+     */
+    public function __construct(
+        private readonly ?string $requestId = null,
+        private readonly string $provider = 'Anthropic',
+    ) {
         $this->usage = new Usage();
     }
 
@@ -81,7 +89,13 @@ final class MessagesAccumulator
                     default => [], // signature_delta, citations: not kept
                 };
             case 'message_delta':
-                $this->stopReason = Json::string(Json::object($event, 'delta'), 'stop_reason') ?? $this->stopReason;
+                $delta = Json::object($event, 'delta');
+                $this->stopReason = Json::string($delta, 'stop_reason') ?? $this->stopReason;
+                // ref: references/hermes-agent/agent/anthropic_adapter.py@e96221fa:L832-L858 — the reason of a
+                //      refusal comes in the delta of the message, not in the final message of a stream.
+                $refusal = Json::object($delta, 'stop_details');
+                $this->refusalCategory = Json::string($refusal, 'category') ?? $this->refusalCategory;
+                $this->refusalExplanation = Json::string($refusal, 'explanation') ?? $this->refusalExplanation;
                 // The counts here are running totals: they replace the ones from message_start.
                 $this->usage = MessagesMapper::usage(Json::object($event, 'usage'), $this->usage);
 
@@ -91,7 +105,7 @@ final class MessagesAccumulator
 
                 return [];
             case 'error':
-                throw MessagesMapper::error(Json::object($event, 'error'));
+                throw MessagesMapper::error(Json::object($event, 'error'), $this->provider);
             default:
                 return []; // ping, content_block_stop and events of later API versions
         }
@@ -104,19 +118,33 @@ final class MessagesAccumulator
 
     public function response(): ChatResponse
     {
-        $calls = \array_map(
-            static fn(array $tool): ToolCall => new ToolCall($tool['id'], $tool['name'], $tool['arguments'] === '' ? '{}' : $tool['arguments']),
-            \array_values($this->tools),
-        );
+        $finish = $this->stopReason === null ? FinishReason::Other : MessagesMapper::finishReason($this->stopReason);
+        $calls = [];
+        foreach ($this->tools as $tool) {
+            $arguments = \trim($tool['arguments']) === '' ? '{}' : $tool['arguments'];
+            // Streamed arguments are not checked by the API: an answer cut at the limit ends in the middle of
+            // them, and the model can write JSON that does not parse. Such a call is never run — the answer ends
+            // as one cut by length, and the caller asks again.
+            if (!\is_array(\json_decode($arguments, true))) {
+                // A refusal stays a refusal: its unfinished call is dropped below with the rest.
+                $finish = $this->stopReason === 'refusal' ? $finish : FinishReason::Length;
+                continue;
+            }
+            $calls[] = new ToolCall($tool['id'], $tool['name'], $arguments);
+        }
 
         return new ChatResponse(
             $this->text,
-            $calls,
-            $this->stopReason === null ? FinishReason::Other : MessagesMapper::finishReason($this->stopReason),
+            // A call the model was writing when it refused is not a call to run.
+            $this->stopReason === 'refusal' ? [] : $calls,
+            $finish,
             $this->usage,
             $this->model,
             $this->id,
             $this->reasoning,
+            $this->requestId,
+            $this->refusalCategory,
+            $this->refusalExplanation,
         );
     }
 

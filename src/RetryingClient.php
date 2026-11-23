@@ -109,6 +109,10 @@ final class RetryingClient implements LlmClient
         if (!$e->retryable() || $attempt >= $this->maxAttempts) {
             throw $e;
         }
+        // A used-up window with a named reset time: waiting here would hold the call for hours. The caller decides.
+        if ($e->resetsAt !== null) {
+            throw $e;
+        }
 
         if ($e->retryAfter !== null) {
             if ($e->retryAfter > $this->maxRetryAfter) {

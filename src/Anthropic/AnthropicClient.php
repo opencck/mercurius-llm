@@ -11,6 +11,7 @@ use Mercurius\Llm\ChatResponse;
 use Mercurius\Llm\ErrorKind;
 use Mercurius\Llm\LlmClient;
 use Mercurius\Llm\LlmException;
+use Mercurius\Llm\OpenRouter\ErrorClassifier;
 use Mercurius\Llm\OpenRouter\EventStream;
 use Mercurius\Llm\OpenRouter\HttpTransport;
 use Mercurius\Llm\StreamEnd;
@@ -41,6 +42,10 @@ final class AnthropicClient implements LlmClient
      *                                   retryable Timeout.
      * @param float $eventTimeout Seconds a stream may go between data events; `ping` events count, as the API sends
      *                              them only while the model works.
+     * @param string $name The name the errors are worded with: the same client serves Anthropic, Bedrock and a
+     *                     gateway that speaks the Messages API.
+     * @param bool $eagerToolInput Ask for the arguments of tool calls as the model writes them; off for an endpoint
+     *                             that refuses the field.
      */
     public function __construct(
         HttpClient $http,
@@ -53,6 +58,8 @@ final class AnthropicClient implements LlmClient
         int $maxResponseBytes = 32 * 1024 * 1024,
         private readonly float $firstEventTimeout = 240.0,
         private readonly float $eventTimeout = 120.0,
+        private readonly string $name = 'Anthropic',
+        private readonly bool $eagerToolInput = true,
     ) {
         if ($apiKey === '') {
             throw new \InvalidArgumentException('Anthropic API key must not be empty');
@@ -93,7 +100,8 @@ final class AnthropicClient implements LlmClient
             throw new \InvalidArgumentException('Bedrock region must look like us-east-1');
         }
 
-        return new self($http, $token, \sprintf('https://bedrock-mantle.%s.api.aws/anthropic/v1', $region), firstEventTimeout: $firstEventTimeout, eventTimeout: $eventTimeout);
+        // An older deployment of a model in Bedrock refuses the field of streamed tool arguments.
+        return new self($http, $token, \sprintf('https://bedrock-mantle.%s.api.aws/anthropic/v1', $region), firstEventTimeout: $firstEventTimeout, eventTimeout: $eventTimeout, name: 'Bedrock', eagerToolInput: false);
     }
 
     #[\Override]
@@ -102,9 +110,9 @@ final class AnthropicClient implements LlmClient
         try {
             $response = $this->transport->send('POST', '/messages', MessagesMapper::toPayload($request, false), 'application/json', $cancellation);
 
-            return MessagesMapper::toResponse($this->transport->decodeJson($response, $cancellation));
+            return MessagesMapper::toResponse($this->transport->decodeJson($response, $cancellation), ErrorClassifier::requestId($response->getHeader('request-id')), $this->name);
         } catch (LlmException $e) {
-            throw self::named($e);
+            throw $this->named($e);
         }
     }
 
@@ -115,13 +123,13 @@ final class AnthropicClient implements LlmClient
     public function stream(ChatRequest $request, ?Cancellation $cancellation = null): \Generator
     {
         try {
-            $response = $this->transport->send('POST', '/messages', MessagesMapper::toPayload($request, true), 'text/event-stream', $cancellation);
+            $response = $this->transport->send('POST', '/messages', MessagesMapper::toPayload($request, true, $this->eagerToolInput), 'text/event-stream', $cancellation);
         } catch (LlmException $e) {
-            throw self::named($e);
+            throw $this->named($e);
         }
 
-        $accumulator = new MessagesAccumulator();
-        foreach (EventStream::events($response, 'Anthropic', $this->firstEventTimeout, $this->eventTimeout, $cancellation) as $data) {
+        $accumulator = new MessagesAccumulator(ErrorClassifier::requestId($response->getHeader('request-id')), $this->name);
+        foreach (EventStream::events($response, $this->name, $this->firstEventTimeout, $this->eventTimeout, $cancellation) as $data) {
             foreach ($accumulator->push($data) as $event) {
                 yield $event;
             }
@@ -131,14 +139,14 @@ final class AnthropicClient implements LlmClient
         }
 
         if (!$accumulator->finished()) {
-            throw new LlmException(ErrorKind::Network, 'Anthropic: stream ended before the answer was complete');
+            throw new LlmException(ErrorKind::Network, $this->name . ': stream ended before the answer was complete');
         }
 
         yield new StreamEnd($accumulator->response());
     }
 
-    private static function named(LlmException $e): LlmException
+    private function named(LlmException $e): LlmException
     {
-        return EventStream::named('Anthropic', $e);
+        return EventStream::named($this->name, $e);
     }
 }

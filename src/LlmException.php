@@ -19,6 +19,13 @@ final class LlmException extends \RuntimeException
         /** Seconds the provider asked to wait before retrying, when it said so. */
         public readonly ?float $retryAfter = null,
         ?\Throwable $previous = null,
+        /**
+         * Unix time a used-up limit window reopens, when the provider named it. Such a limit is not a throttle: a
+         * retry before that time fails the same way, so the caller decides what to do, not the retry loop.
+         */
+        public readonly ?int $resetsAt = null,
+        /** Provider-side id of the failed request, for support; null when the provider sent none. */
+        public readonly ?string $requestId = null,
     ) {
         parent::__construct($message, $status ?? 0, $previous);
     }

@@ -39,8 +39,10 @@ final class ErrorClassifier
      * Classifies a non-2xx HTTP response.
      *
      * @param string $body Raw response body (only the error message is kept).
+     * @param array<string, ?string> $headers Other headers of the response by lower-case name: the id of the request
+     *                                        and, for the Messages API, the state of the limit window.
      */
-    public static function fromHttpResponse(int $status, string $body, ?string $retryAfterHeader, float $now): LlmException
+    public static function fromHttpResponse(int $status, string $body, ?string $retryAfterHeader, float $now, array $headers = []): LlmException
     {
         $message = self::extractMessage($body) ?? \sprintf('HTTP %d', $status);
 
@@ -49,7 +51,51 @@ final class ErrorClassifier
             self::format($status, $message),
             $status,
             self::parseRetryAfter($retryAfterHeader, $now),
+            null,
+            $status === 429 ? self::windowReset($body, $headers) : null,
+            self::requestId($headers['request-id'] ?? $headers['x-request-id'] ?? null),
         );
+    }
+
+    /**
+     * An id of a request as a provider sends it; anything else is dropped, so a header never carries text into a
+     * log or a message.
+     */
+    public static function requestId(?string $value): ?string
+    {
+        return $value !== null && \preg_match('/^[A-Za-z0-9_-]{1,128}$/', $value) === 1 ? $value : null;
+    }
+
+    /**
+     * Unix time a used-up limit window reopens: `error.resets_at` of the body, or the reset header of a window the
+     * provider says is rejected. Every answer of the Messages API carries the reset of the window, so the header
+     * alone means nothing: a throttle while the window is open must not look like a limit of hours.
+     *
+     * ref: references/hermes-official-plugins/claude-subscription-directsdk/admission.py@269ddcb:L86-L98
+     *      (rejected_window_reset) — only a 429 with the status `rejected` makes the reset this answer's.
+     *
+     * @param array<string, ?string> $headers
+     */
+    private static function windowReset(string $body, array $headers): ?int
+    {
+        try {
+            /** @var mixed $data */
+            $data = \json_decode($body, true, 16, \JSON_THROW_ON_ERROR);
+        } catch (\JsonException) {
+            $data = null;
+        }
+        /** @var mixed $inBody */
+        $inBody = \is_array($data) && \is_array($data['error'] ?? null) ? ($data['error']['resets_at'] ?? null) : null;
+        if (\is_int($inBody) && $inBody > 0) {
+            return $inBody;
+        }
+        $reset = $headers['anthropic-ratelimit-unified-reset'] ?? null;
+        if (\trim($headers['anthropic-ratelimit-unified-status'] ?? '') !== 'rejected' || $reset === null || !\is_numeric($reset)) {
+            return null;
+        }
+        $time = (int) \round((float) $reset);
+
+        return $time > 0 ? $time : null;
     }
 
     /**

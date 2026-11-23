@@ -86,7 +86,7 @@ final class EventStream
             return $e;
         }
 
-        return new LlmException($e->kind, $provider . \substr($e->getMessage(), \strlen('OpenRouter')), $e->status, $e->retryAfter, $e);
+        return new LlmException($e->kind, $provider . \substr($e->getMessage(), \strlen('OpenRouter')), $e->status, $e->retryAfter, $e, $e->resetsAt, $e->requestId);
     }
 
     /** Whether the caller (not the stall timer) cancelled. */

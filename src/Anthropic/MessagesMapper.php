@@ -31,11 +31,19 @@ final class MessagesMapper
 
     private const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 
+    /** Families that think always: `thinking: disabled` is a 400 there. */
+    private const MANDATORY_THINKING = ['fable', 'opus-5-5', 'sonnet-5-5', 'haiku-5-5', 'mythos'];
+
+    /** Short names a caller may use, and the model each one means. */
+    private const ALIASES = ['sonnet' => 'sonnet-5-5', 'haiku' => 'haiku-5-5', 'opus' => 'opus-5-5', 'fable' => 'fable-5-2'];
+
     /**
+     * @param bool $eagerToolInput Ask the API to stream the arguments of tool calls as the model writes them. Off
+     *                             for an endpoint that refuses the field.
      * @return array<string, mixed>
      * @throws LlmException When a message carries a video: the Messages API takes pictures only.
      */
-    public static function toPayload(ChatRequest $request, bool $stream): array
+    public static function toPayload(ChatRequest $request, bool $stream, bool $eagerToolInput = true): array
     {
         $system = [];
         /** @var list<array{role: 'user'|'assistant', content: list<array<string, mixed>>}> $turns */
@@ -83,9 +91,13 @@ final class MessagesMapper
             $payload['system'] = $system;
         }
         if ($request->tools !== []) {
+            // Without the field the API holds the arguments of a call back until they are whole: a long call looks
+            // like a stalled stream. With it the arguments are not checked by the API — the accumulator checks them.
+            $eager = $stream && $eagerToolInput ? ['eager_input_streaming' => true] : [];
             $payload['tools'] = \array_map(static fn($tool): array => [
                 'name' => $tool->name,
                 'description' => $tool->description,
+                ...$eager,
                 'input_schema' => self::schema($tool->parameters),
             ], $request->tools);
         }
@@ -95,7 +107,24 @@ final class MessagesMapper
             'none', 'minimal' => 'low',
             default => \in_array($request->reasoningEffort, self::EFFORTS, true) ? $request->reasoningEffort : null,
         };
-        if ($effort !== null) {
+        $model = self::family($request->model);
+        $adaptive = self::adaptive($model);
+        // ref: references/hermes-agent/agent/anthropic_adapter.py@e96221fa:L618-L638 (_thinking_kwargs) — a disable
+        //      where the model takes it, else the lowest effort; adaptive thinking with the summary shown, since the
+        //      newer models hide the text of thinking by default; nothing for a model without adaptive thinking.
+        //      Departure: an effort the model lacks is cut down to `high`, not raised to `max`, and thinking is
+        //      turned on only where it was asked for or is the model's own default.
+        if ($request->reasoningEffort === 'none' && self::acceptsThinkingDisable($model)) {
+            $payload['thinking'] = ['type' => 'disabled'];
+            $effort = null;
+        } elseif ($adaptive && $request->reasoningEffort !== 'none' && ($effort !== null || self::thinksByDefault($model))) {
+            $payload['thinking'] = ['type' => 'adaptive', 'display' => 'summarized'];
+        }
+        if ($effort === 'xhigh' && \preg_match('/^(opus|sonnet)-4-6(-|$)/', $model) === 1) {
+            $effort = 'high';
+        }
+        // A model without adaptive thinking has no effort parameter either.
+        if ($effort !== null && $adaptive) {
             $payload['output_config'] = ['effort' => $effort];
         }
         if ($stream) {
@@ -107,12 +136,14 @@ final class MessagesMapper
 
     /**
      * @param array<array-key, mixed> $data
+     * @param ?string $requestId The id of the HTTP request, from its header.
+     * @param string $provider The name the errors are worded with.
      * @throws LlmException
      */
-    public static function toResponse(array $data): ChatResponse
+    public static function toResponse(array $data, ?string $requestId = null, string $provider = 'Anthropic'): ChatResponse
     {
         if (Json::string($data, 'type') === 'error') {
-            throw self::error(Json::object($data, 'error'));
+            throw self::error(Json::object($data, 'error'), $provider);
         }
         $text = '';
         $reasoning = '';
@@ -130,15 +161,58 @@ final class MessagesMapper
             };
         }
 
+        $stopReason = Json::string($data, 'stop_reason');
+        $refusal = Json::object($data, 'stop_details');
+
         return new ChatResponse(
             $text,
-            $calls,
-            self::finishReason(Json::string($data, 'stop_reason')),
+            // A call the model was writing when it refused is not a call to run.
+            $stopReason === 'refusal' ? [] : $calls,
+            self::finishReason($stopReason),
             self::usage(Json::object($data, 'usage')),
             Json::string($data, 'model') ?? '',
             Json::string($data, 'id') ?? '',
             $reasoning,
+            $requestId,
+            Json::string($refusal, 'category'),
+            Json::string($refusal, 'explanation'),
         );
+    }
+
+    /**
+     * The model as its family and version, without what a host adds around the name: `anthropic.claude-opus-5-5`,
+     * `anthropic/claude-opus-5-5`, `claude-opus-5-5[1m]` and `opus` are all `opus-5-5`.
+     */
+    private static function family(string $model): string
+    {
+        $name = \strtolower($model);
+        $name = \str_ends_with($name, '[1m]') ? \substr($name, 0, -4) : $name;
+        $name = (string) \preg_replace('/^(anthropic[.\/])?(claude-)?/', '', $name);
+
+        return self::ALIASES[$name] ?? $name;
+    }
+
+    /** Claude 4.6 and later take `thinking: adaptive` and `output_config.effort`; Haiku 4.5 and older do not. */
+    private static function adaptive(string $family): bool
+    {
+        return \preg_match('/^(3-|(opus|sonnet|haiku)-(3|4)(-[0-5])?(-\d{8})?$)/', $family) !== 1;
+    }
+
+    private static function acceptsThinkingDisable(string $family): bool
+    {
+        foreach (self::MANDATORY_THINKING as $always) {
+            if (\str_starts_with($family, $always)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /** The 5.x families, Fable and Mythos think when nothing is said; 4.6–4.8 think only when asked. */
+    private static function thinksByDefault(string $family): bool
+    {
+        return \preg_match('/^(fable|mythos|(opus|sonnet|haiku)-[5-9])/', $family) === 1;
     }
 
     /**
@@ -146,11 +220,15 @@ final class MessagesMapper
      */
     public static function usage(array $usage, ?Usage $before = null): Usage
     {
+        // ref: references/hermes-agent/agent/usage_pricing.py@e96221fa:L703-L709 — the tokens of thinking are a
+        //      part of the output, counted in `output_tokens_details.thinking_tokens`: the whole thinking, not the
+        //      summary that is shown.
         return new Usage(
             Json::int($usage, 'input_tokens') ?? $before->inputTokens ?? 0,
             Json::int($usage, 'output_tokens') ?? $before->outputTokens ?? 0,
             Json::int($usage, 'cache_read_input_tokens') ?? $before->cacheReadTokens ?? 0,
             Json::int($usage, 'cache_creation_input_tokens') ?? $before->cacheWriteTokens ?? 0,
+            Json::int(Json::object($usage, 'output_tokens_details'), 'thinking_tokens') ?? $before->reasoningTokens ?? 0,
         );
     }
 
@@ -170,7 +248,7 @@ final class MessagesMapper
      *
      * @param array<array-key, mixed> $error
      */
-    public static function error(array $error): LlmException
+    public static function error(array $error, string $provider = 'Anthropic'): LlmException
     {
         $type = Json::string($error, 'type') ?? '';
         $message = Json::string($error, 'message') ?? 'Provider error';
@@ -185,7 +263,7 @@ final class MessagesMapper
             default => ErrorKind::Unknown,
         };
 
-        return new LlmException($kind, 'Anthropic: ' . \mb_strcut(\preg_replace('/\s+/', ' ', $message) ?? $message, 0, 500, 'UTF-8'));
+        return new LlmException($kind, $provider . ': ' . \mb_strcut(\preg_replace('/\s+/', ' ', $message) ?? $message, 0, 500, 'UTF-8'));
     }
 
     /** A tool input as the JSON the model wrote; an empty input is the empty object. */
