@@ -59,6 +59,8 @@ final class AnthropicRefinementsTest extends AsyncTestCase
             ['claude-haiku-4-5-20251001', 'high', null, null],
             ['claude-haiku-4-5', 'none', ['type' => 'disabled'], null],
             ['claude-sonnet-4-5', 'medium', null, null],
+            // Opus 4.5 takes an effort, without adaptive thinking
+            ['claude-opus-4-5', 'high', null, ['effort' => 'high']],
             // an unknown model is taken for a new one
             ['claude-next-9', 'max', ['type' => 'adaptive', 'display' => 'summarized'], ['effort' => 'max']],
         ];

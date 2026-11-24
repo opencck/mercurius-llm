@@ -123,8 +123,8 @@ final class MessagesMapper
         if ($effort === 'xhigh' && \preg_match('/^(opus|sonnet)-4-6(-|$)/', $model) === 1) {
             $effort = 'high';
         }
-        // A model without adaptive thinking has no effort parameter either.
-        if ($effort !== null && $adaptive) {
+        // A model without adaptive thinking has no effort parameter either, but Opus 4.5, which takes an effort alone.
+        if ($effort !== null && ($adaptive || \str_starts_with($model, 'opus-4-5'))) {
             $payload['output_config'] = ['effort' => $effort];
         }
         if ($stream) {
