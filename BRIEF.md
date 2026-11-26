@@ -49,6 +49,7 @@ Responses API), Anthropic Messages API, Claude в Amazon Bedrock, Gemini API и 
 | `OpenAI/OpenAIClient` | Адаптер OpenAI Chat Completions на общем коде (`Dialect::OpenAI`) |
 | `OpenAI/ResponsesClient`, `ResponsesMapper`, `ResponsesAccumulator` | Адаптер OpenAI Responses API (`POST /v1/responses`, `store: false`) для моделей codex, `-pro` и моделей, которые рассуждают всегда |
 | `Anthropic/AnthropicClient`, `MessagesMapper`, `MessagesAccumulator` | Адаптер Anthropic Messages API; `AnthropicClient::bedrock()` — тот же API в Bedrock с ключом-токеном и проверкой региона |
+| `Antigravity/AntigravityClient` | Клиент сервиса `mercurius-antigravity` на общем Chat Completions |
 | `Gemini/GeminiClient`, `VertexClient` | Адаптеры Gemini API (ключ AI Studio) и Gemini в Google Cloud (сервисный аккаунт) на общем коде (`Dialect::Gemini`) |
 | `Gemini/VertexAccount` | Сервисный аккаунт: JWT RS256, обмен на часовой токен, кеш, один обмен на всех ожидающих |
 | `Gemini/GeminiModel`, `ToolSchema` | Правила семейств Gemini (мышление, `temperature`, предел ответа, заглушка подписи) и очистка схем инструментов (`@internal`) |
@@ -126,6 +127,15 @@ Responses API), Anthropic Messages API, Claude в Amazon Bedrock, Gemini API и 
   становится `retryAfter`. Причины завершения приходят заглавными; `SAFETY`, `RECITATION` и подобные — `content_filter`.
 - **Цена.** API стоимость не сообщает. Каталог даёт базовую цену; повышенная цена Google для запросов длиннее
   200 тысяч токенов не учитывается — известная неточность оценки.
+
+## Antigravity
+
+`Antigravity/AntigravityClient` — клиент сервиса `mercurius-antigravity` (модели плана Google Antigravity через
+официальный CLI в своём сервисе): общий Chat Completions с обычным телом (`max_tokens`, `reasoning.effort`). Усилие
+доходит до сервиса и при инструментах — диалект OpenAI заменил бы его на `none`. Сервис отвечает ошибками в форме
+Chat Completions: 429 с `error.resets_at` несёт `resetsAt` и не повторяется, 422 (нарушение правил вызова) — не
+повторяемая ошибка запроса. Таймауты потока длиннее обычных: CLI стартует секунды, а модель может думать минуты.
+Стоимость сервис не сообщает.
 
 ## Проверки
 
