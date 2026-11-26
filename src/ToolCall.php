@@ -16,6 +16,11 @@ final class ToolCall
         public readonly string $id,
         public readonly string $name,
         public readonly string $argumentsJson = '{}',
+        /**
+         * Opaque signature a provider put on the call (Gemini: the thought signature) and wants back with the call
+         * in the next request. Null when the provider sent none; other providers never see it.
+         */
+        public readonly ?string $signature = null,
     ) {
     }
 

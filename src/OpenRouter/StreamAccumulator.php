@@ -30,7 +30,7 @@ final class StreamAccumulator
 
     private string $reasoning = '';
 
-    /** @var array<int, array{id: string, name: string, arguments: string}> */
+    /** @var array<int, array{id: string, name: string, arguments: string, signature: ?string}> */
     private array $toolCalls = [];
 
     private ?FinishReason $finishReason = null;
@@ -121,7 +121,7 @@ final class StreamAccumulator
         \ksort($calls);
         $toolCalls = [];
         foreach ($calls as $call) {
-            $toolCalls[] = new ToolCall($call['id'], $call['name'], $call['arguments']);
+            $toolCalls[] = new ToolCall($call['id'], $call['name'], $call['arguments'], $call['signature']);
         }
 
         return new ChatResponse(
@@ -154,13 +154,14 @@ final class StreamAccumulator
             if (\count($this->toolCalls) >= $this->maxToolCalls) {
                 throw new LlmException(ErrorKind::Unknown, 'OpenRouter: too many tool calls in one answer');
             }
-            $current = ['id' => '', 'name' => '', 'arguments' => ''];
+            $current = ['id' => '', 'name' => '', 'arguments' => '', 'signature' => null];
         }
         $this->grow(\strlen($fragment));
         $this->toolCalls[$index] = [
             'id' => $id ?? $current['id'],
             'name' => $name ?? $current['name'],
             'arguments' => $current['arguments'] . $fragment,
+            'signature' => PayloadMapper::signature($call) ?? $current['signature'],
         ];
 
         return new ToolCallDelta($index, $id, $name, $fragment);

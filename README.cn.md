@@ -4,7 +4,7 @@
 
 > 本文由模型翻译，尚未经人工审校；如有出入，以英文版为准。
 
-调用大语言模型的统一接口：消息、工具、流式输出、token 和成本核算、错误与重试。适配器：OpenRouter、OpenAI API（Chat Completions 和 Responses）、Anthropic Messages API 以及 Amazon Bedrock 中的 Claude；其他提供商以适配器的形式添加，无需改动接口。
+调用大语言模型的统一接口：消息、工具、流式输出、token 和成本核算、错误与重试。适配器：OpenRouter、OpenAI API（Chat Completions 和 Responses）、Anthropic Messages API、Amazon Bedrock 中的 Claude、Gemini API 以及 Google Cloud（Vertex）中的 Gemini；其他提供商以适配器的形式添加，无需改动接口。
 
 [Mercurius](https://github.com/opencck/mercurius) 的一部分，一个自主的个人智能体。该包不依赖 Mercurius 应用，可以单独使用。
 
@@ -83,6 +83,9 @@ foreach ($llm->stream($request) as $event) {
 | `Anthropic\AnthropicClient` | 基于 AMPHP HTTP 客户端（而非会阻塞的官方 SDK）的 Anthropic Messages API 适配器（`POST /v1/messages`）：密钥放在 `x-api-key`，`anthropic-version: 2026-10-21`；系统消息作为顶层文本块发送，缓存标记变为 `cache_control`，同角色的轮次会被合并以使角色交替，工具结果放在 user 轮次中，图片为 base64 块（视频会得到 `BadRequest`）；推理强度进入 `output_config.effort`，不发送 temperature（该 API 版本会拒绝它）；`max_tokens` 默认为 16000；思考内容作为推理文本返回，且不会随历史一起回传；HTTP 529（过载）和流中的 `error` 事件是可重试的 `Server` 错误；该 API 不报告成本，所以 `Usage::$costUsd` 为 null |
 | `AnthropicClient::bedrock()` | Amazon Bedrock 中的 Claude：同一套 Messages API，位于 `https://bedrock-mantle.{region}.api.aws/anthropic`，使用 Bedrock API 密钥（bearer 令牌）而非 SigV4 签名；模型 id 形如 `anthropic.claude-opus-5-5`；区域在成为主机名之前会经过检查 |
 | `ModelCatalog\BedrockCatalog` | `fetch(): list<ModelInfo>`：Bedrock 在那里没有模型端点，所以取 OpenRouter 目录中的 Claude 模型，并改写为 Bedrock 的拼写（`anthropic/claude-opus-5.5` 即 `anthropic.claude-opus-5-5`）；每个模型能否访问由 Bedrock 决定 |
+| `Gemini\GeminiClient` | 使用 Google AI Studio 密钥的 Gemini API，经由其兼容 OpenAI 的地址（`https://generativelanguage.googleapis.com/v1beta/openai`）：思考通过 `extra_body.google.thinking_config` 传递，级别按各模型系列所接受的取值（不请求思考摘要）；请求思考时提高回答上限；对 Gemini 3.6 及更新的模型不发送 `temperature`；工具 schema 会清除类型列表和 null 分支；工具调用的思考签名保存在 `ToolCall::$signature` 中并随请求发回（由其他提供商发起的调用使用占位值） |
+| `Gemini\VertexClient`、`Gemini\VertexAccount` | Google Cloud 中的 Gemini（Gemini Enterprise Agent Platform，原 Vertex AI），经由其兼容 OpenAI 的地址，请求规则相同；模型名形如 `google/gemini-…`。`VertexAccount::fromJson()` 接收服务账号的密钥文件，签发 JWT（RS256，`ext-openssl`）并换取有效期一小时的令牌，不阻塞事件循环：令牌在过期前五分钟刷新，并发调用共用一次交换 |
+| `ModelCatalog\GeminiCatalog`、`ModelCatalog\VertexCatalog` | `fetch(): list<ModelInfo>`：Gemini 密钥可用的文本模型（`GET …/openai/models`），由 OpenRouter 目录描述；Vertex 在该地址没有模型列表，因此其目录取 OpenRouter 目录中的 Gemini 文本模型（拼写相同）。价格为基础价：Google 对超过 20 万 token 的请求的更高价格未计入 |
 | `ModelCatalog\AnthropicCatalog` | `fetch(): list<ModelInfo>`：该密钥可用的模型（`GET /v1/models`），由公开的 OpenRouter 目录进行描述，该目录用点号书写版本（`claude-opus-5-5` 即 `anthropic/claude-opus-5.5`，带日期的 id 查找时去掉日期）；它不认识的模型会被略去 |
 | `OpenRouter\ImageClient` | `generate(ImageRequest): ImageResult`：来自 OpenRouter 图像模型的图片（`POST /images`，`response_format: b64_json`——图片随响应返回，而不是会过期的链接）；`ImageRequest` 检查数量（1–10）、宽高比和分辨率档位；`ImageResult` 携带 `MediaPart` 图片、usage 和报告的成本；没有图片即为错误 |
 | `OpenAI\ResponsesClient` | OpenAI Responses API 适配器（`POST /v1/responses`），这是 codex 模型和始终进行推理的模型所用的 API，这些模型在此处接受函数工具：系统消息变为 `instructions`，对话以条目（`message`、`function_call`、`function_call_output`）形式发送，图片为 `input_image`，`store: false`，强度放在 `reasoning.effort`（`max` 变为 `xhigh`），`max_output_tokens`；不完整的回答为 `Length` 或 `ContentFilter`；缓存的输入 token 单独成一档；`response.failed` 或 `error` 事件是已分类的错误 |

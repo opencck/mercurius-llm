@@ -8,6 +8,8 @@ use Mercurius\Llm\ChatRequest;
 use Mercurius\Llm\ChatResponse;
 use Mercurius\Llm\ErrorKind;
 use Mercurius\Llm\FinishReason;
+use Mercurius\Llm\Gemini\GeminiModel;
+use Mercurius\Llm\Gemini\ToolSchema;
 use Mercurius\Llm\LlmException;
 use Mercurius\Llm\MediaPart;
 use Mercurius\Llm\Message;
@@ -28,35 +30,53 @@ final class PayloadMapper
      */
     public static function toPayload(ChatRequest $request, bool $stream, Dialect $dialect = Dialect::OpenRouter): array
     {
+        $gemini = $dialect === Dialect::Gemini;
+        // Gemini 3 and later want the signature of a tool call back, and a stand-in for a call another provider made
+        $stub = $gemini && GeminiModel::usesThinkingLevel($request->model);
         $payload = [
             'model' => $request->model,
-            'messages' => \array_map(self::message(...), $request->messages),
+            'messages' => \array_map(static fn (Message $m): array => self::message($m, $gemini, $stub), $request->messages),
         ];
         if ($request->tools !== []) {
-            $payload['tools'] = \array_map(self::tool(...), $request->tools);
+            $payload['tools'] = \array_map(static fn (ToolDefinition $t): array => self::tool($t, $gemini), $request->tools);
         }
-        $openAi = $dialect === Dialect::OpenAI;
+        $effort = $request->reasoningEffort;
         if ($request->maxTokens !== null) {
             // ref: references/hermes-agent/utils.py@e96221fa:L835-L838 (model_forces_max_completion_tokens) — newer
             //      OpenAI models refuse max_tokens; the OpenAI API takes max_completion_tokens for all of them
-            $payload[$openAi ? 'max_completion_tokens' : 'max_tokens'] = $request->maxTokens;
+            $payload[$dialect === Dialect::OpenAI ? 'max_completion_tokens' : 'max_tokens'] = $gemini
+                ? GeminiModel::maxTokens($request->model, $effort, $request->maxTokens)
+                : $request->maxTokens;
         }
-        // Reasoning models of the OpenAI API refuse a temperature other than the default.
-        if ($request->temperature !== null && !($openAi && $request->reasoningEffort !== null)) {
+        $temperature = match ($dialect) {
+            // Reasoning models of the OpenAI API refuse a temperature other than the default.
+            Dialect::OpenAI => $effort === null,
+            Dialect::Gemini => !GeminiModel::ignoresTemperature($request->model),
+            Dialect::OpenRouter => true,
+        };
+        if ($request->temperature !== null && $temperature) {
             $payload['temperature'] = $request->temperature;
         }
-        if ($request->reasoningEffort !== null) {
-            if ($openAi) {
+        if ($gemini) {
+            // ref: references/hermes-agent/agent/transports/chat_completions.py@e96221f:L227-L239
+            //      (_snake_case_gemini_thinking_config) and L632-L637 — the compatible address reads thinking from
+            //      `extra_body.google.thinking_config` in snake case
+            $thinking = GeminiModel::thinking($request->model, $effort);
+            if ($thinking !== null) {
+                $payload['extra_body'] = ['google' => ['thinking_config' => $thinking]];
+            }
+        } elseif ($effort !== null) {
+            if ($dialect === Dialect::OpenAI) {
                 // The OpenAI API has no "max": its highest effort is "xhigh".
-                $payload['reasoning_effort'] = $request->reasoningEffort === 'max' ? 'xhigh' : $request->reasoningEffort;
+                $payload['reasoning_effort'] = $effort === 'max' ? 'xhigh' : $effort;
             } else {
-                $payload['reasoning'] = ['effort' => $request->reasoningEffort];
+                $payload['reasoning'] = ['effort' => $effort];
             }
         }
 
         // OpenAI Chat Completions refuses function tools with reasoning on ("use /v1/responses or set reasoning_effort
         // to 'none'"), and reasoning is on by default: with tools it is turned off explicitly.
-        if ($openAi && $request->tools !== []) {
+        if ($dialect === Dialect::OpenAI && $request->tools !== []) {
             $payload['reasoning_effort'] = 'none';
             unset($payload['temperature']);
         }
@@ -98,6 +118,7 @@ final class PayloadMapper
                 Json::string($call, 'id') ?? '',
                 Json::string($function, 'name') ?? '',
                 Json::string($function, 'arguments') ?? '',
+                self::signature($call),
             );
         }
 
@@ -138,9 +159,28 @@ final class PayloadMapper
     }
 
     /**
+     * The signature Gemini put on a tool call: `extra_content.google.thought_signature`, or the same key without the
+     * namespace. An empty one is no signature: replayed, it fails as corrupted.
+     *
+     * ref: references/hermes-agent/agent/transports/chat_completions.py@e96221f:L320-L333
+     *      (_has_replayable_thought_signature)
+     *
+     * @param array<array-key, mixed> $call
+     */
+    public static function signature(array $call): ?string
+    {
+        $extra = Json::object($call, 'extra_content');
+        $signature = Json::string(Json::object($extra, 'google'), 'thought_signature') ?? Json::string($extra, 'thought_signature');
+
+        return $signature !== null && \trim($signature) !== '' ? $signature : null;
+    }
+
+    /**
+     * @param bool $signatures whether tool calls carry their signatures (the dialect of Google)
+     * @param bool $stub whether a call without a signature gets the stand-in
      * @return array<string, mixed>
      */
-    private static function message(Message $message): array
+    private static function message(Message $message, bool $signatures = false, bool $stub = false): array
     {
         $out = ['role' => $message->role->value];
         switch ($message->role) {
@@ -158,6 +198,15 @@ final class PayloadMapper
                         ],
                         $message->toolCalls,
                     );
+                    if ($signatures) {
+                        // Gemini signs the first call of a step only: the stand-in goes there and nowhere else
+                        foreach ($message->toolCalls as $i => $call) {
+                            $signature = $call->signature ?? ($stub && $i === 0 ? GeminiModel::SKIP_SIGNATURE : null);
+                            if ($signature !== null) {
+                                $out['tool_calls'][$i]['extra_content'] = ['google' => ['thought_signature' => $signature]];
+                            }
+                        }
+                    }
                 }
                 break;
             case Role::Tool:
@@ -181,11 +230,11 @@ final class PayloadMapper
     /**
      * @return array<string, mixed>
      */
-    private static function tool(ToolDefinition $tool): array
+    private static function tool(ToolDefinition $tool, bool $gemini = false): array
     {
         $parameters = $tool->parameters === []
             ? ['type' => 'object', 'properties' => new \stdClass()]
-            : self::fixEmptyObjects($tool->parameters);
+            : self::fixEmptyObjects($gemini ? ToolSchema::clean($tool->parameters) : $tool->parameters);
 
         return [
             'type' => 'function',

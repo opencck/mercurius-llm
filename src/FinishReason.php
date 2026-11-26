@@ -27,11 +27,13 @@ enum FinishReason: string
      */
     public static function fromOpenAi(?string $reason): self
     {
-        return match ($reason) {
+        // ref: references/hermes-agent/agent/gemini_native_adapter.py@e96221f:L87-L90 (_FINISH_REASON_MAP) — addresses in
+        //      front of Gemini answer in capitals (STOP, MAX_TOKENS) and with Gemini's own reasons of a block
+        return match ($reason === null ? null : \strtolower($reason)) {
             'stop', 'end_turn', 'stop_sequence' => self::Stop,
             'length', 'max_tokens' => self::Length,
             'tool_calls', 'function_call', 'tool_use' => self::ToolCalls,
-            'content_filter', 'refusal' => self::ContentFilter,
+            'content_filter', 'refusal', 'safety', 'recitation', 'blocklist', 'prohibited_content', 'spii' => self::ContentFilter,
             'error' => self::Error,
             default => self::Other,
         };

@@ -2,7 +2,7 @@
 
 Единый асинхронный интерфейс вызова больших языковых моделей на AMPHP v3: сообщения, инструменты, потоковый ответ,
 учёт токенов и стоимости, классифицированные ошибки и повторы. Адаптеры: OpenRouter, OpenAI (Chat Completions и
-Responses API), Anthropic Messages API и Claude в Amazon Bedrock; каталоги моделей этих провайдеров; генерация картинок
+Responses API), Anthropic Messages API, Claude в Amazon Bedrock, Gemini API и Gemini в Google Cloud (Vertex); каталоги моделей этих провайдеров; генерация картинок
 через OpenRouter. Пакет — часть Меркурия (`opencck/mercurius`), подключается сабмодулем в `packages/llm/` и не зависит
 от приложения: годится любому PHP-приложению на цикле событий Revolt.
 
@@ -20,7 +20,7 @@ Responses API), Anthropic Messages API и Claude в Amazon Bedrock; катало
 
 - выбор сети: пакет принимает любой `Amp\Http\Client\HttpClient`, а VLESS или прокси подставляет приложение
   (пакет `connectors`);
-- ссылки моделей с приставкой провайдера (`openrouter:`, `openai:`, `codex:`, `anthropic:`, `bedrock:`), профили
+- ссылки моделей с приставкой провайдера (`openrouter:`, `openai:`, `codex:`, `anthropic:`, `bedrock:`, `gemini:`, `vertex:`), профили
   провайдеров, роли моделей, выбор по профилю задачи, каскад, бюджет запуска;
 - запись расхода (`llm_calls`), хранение каталога (`model_catalog`), трассы;
 - провайдер `chatgpt:` (подписка ChatGPT): `CodexClient`, `CodexCatalog`, `CodexAccount` лежат в
@@ -33,7 +33,7 @@ Responses API), Anthropic Messages API и Claude в Amazon Bedrock; катало
 | `LlmClient` | `complete(ChatRequest, ?Cancellation): ChatResponse` и `stream(...)`: события потока `StreamEvent` |
 | `ChatRequest` | Неизменяемый запрос: модель, сообщения, инструменты, `maxTokens`, `temperature`, `reasoningEffort`, `extra`; методы `with*()` |
 | `Message`, `Role`, `MediaPart` | Сообщение (`system()`, `user()` с картинками и видео, `assistant()`, `toolResult()`, метка кеша `cached()`); вложение `image()`/`video()` с `dataUrl()` |
-| `ToolDefinition`, `ToolCall` | Инструмент с JSON Schema; вызов модели с исходной строкой аргументов и `arguments()` |
+| `ToolDefinition`, `ToolCall` | Инструмент с JSON Schema; вызов модели с исходной строкой аргументов, `arguments()` и подписью провайдера `signature` |
 | `ChatResponse`, `FinishReason` | Текст, вызовы инструментов, причина завершения, `Usage`, фактическая модель, id у провайдера, рассуждение; `toMessage()` |
 | `Usage` | Токены по корзинам (вход без кеша, выход, чтение и запись кеша, рассуждение) и `costUsd`; `plus()`, `totalTokens()` |
 | `StreamEvent`: `TextDelta`, `ReasoningDelta`, `ToolCallDelta`, `StreamEnd` | События потока; `StreamEnd` несёт собранный `ChatResponse` |
@@ -41,16 +41,19 @@ Responses API), Anthropic Messages API и Claude в Amazon Bedrock; катало
 | `RetryingClient` | Декоратор: 3 попытки, экспоненциальная задержка с полным джиттером (1–30 с), `Retry-After` до 60 с, поток не повторяется после первого события; `onRetry` для журнала |
 | `ImageRequest`, `ImageResult` | Запрос картинок (число 1–10, соотношение сторон, разрешение) и результат: картинки `MediaPart`, `Usage`, модель |
 | `OpenRouter/OpenRouterClient` | Адаптер OpenRouter Chat Completions; заголовки атрибуции `X-Title` и `HTTP-Referer` |
-| `OpenRouter/ChatCompletions`, `Dialect` | Общий протокол Chat Completions для OpenRouter и OpenAI; диалект задаёт отличия тела запроса (`@internal`) |
-| `OpenRouter/HttpTransport` | Запрос с ключом, таймауты соединения, тишины и передачи, предел тела ответа, разбор JSON (`@internal`) |
+| `OpenRouter/ChatCompletions`, `Dialect` | Общий протокол Chat Completions для OpenRouter, OpenAI и совместимого адреса Google; диалект задаёт отличия тела запроса (`@internal`) |
+| `OpenRouter/HttpTransport` | Запрос с ключом или с токеном от источника-замыкания, таймауты соединения, тишины и передачи, предел тела ответа, разбор JSON (`@internal`) |
 | `OpenRouter/SseParser`, `EventStream`, `StreamAccumulator` | Разбор SSE (keep-alive, `[DONE]`, предел события 4 МБ), таймауты первого и следующих событий, сборка ответа из дельт |
 | `OpenRouter/PayloadMapper`, `ErrorClassifier`, `Json` | Тело запроса и разбор ответа; классификация HTTP-статусов и ошибок потока; безопасное чтение полей JSON |
 | `OpenRouter/ImageClient` | `generate(ImageRequest)`: `POST /images` с `b64_json` |
 | `OpenAI/OpenAIClient` | Адаптер OpenAI Chat Completions на общем коде (`Dialect::OpenAI`) |
 | `OpenAI/ResponsesClient`, `ResponsesMapper`, `ResponsesAccumulator` | Адаптер OpenAI Responses API (`POST /v1/responses`, `store: false`) для моделей codex, `-pro` и моделей, которые рассуждают всегда |
 | `Anthropic/AnthropicClient`, `MessagesMapper`, `MessagesAccumulator` | Адаптер Anthropic Messages API; `AnthropicClient::bedrock()` — тот же API в Bedrock с ключом-токеном и проверкой региона |
+| `Gemini/GeminiClient`, `VertexClient` | Адаптеры Gemini API (ключ AI Studio) и Gemini в Google Cloud (сервисный аккаунт) на общем коде (`Dialect::Gemini`) |
+| `Gemini/VertexAccount` | Сервисный аккаунт: JWT RS256, обмен на часовой токен, кеш, один обмен на всех ожидающих |
+| `Gemini/GeminiModel`, `ToolSchema` | Правила семейств Gemini (мышление, `temperature`, предел ответа, заглушка подписи) и очистка схем инструментов (`@internal`) |
 | `ModelCatalog/OpenRouterCatalog`, `ModelInfo` | `GET /models` → `ModelInfo` (контекст, цены, модальности, параметры, индексы, `estimateCost()`); `toolReliable()` — модели с надёжным вызовом инструментов |
-| `ModelCatalog/OpenAICatalog`, `AnthropicCatalog`, `BedrockCatalog` | Модели ключа провайдера, описанные записями открытого каталога OpenRouter; у Bedrock — модели Claude из каталога OpenRouter в написании Bedrock |
+| `ModelCatalog/OpenAICatalog`, `AnthropicCatalog`, `BedrockCatalog`, `GeminiCatalog`, `VertexCatalog` | Модели ключа провайдера, описанные записями открытого каталога OpenRouter; у Bedrock — модели Claude из каталога OpenRouter в написании Bedrock, у Vertex — текстовые модели Gemini оттуда же |
 
 ## Решения
 
@@ -75,9 +78,11 @@ Responses API), Anthropic Messages API и Claude в Amazon Bedrock; катало
   неразбираемыми аргументами не возвращается на исполнение, ответ кончается причиной «длина». Для Bedrock поле не
   шлётся: старые развёртывания его отвергают.
 - **Отказ модели — не вызов.** Вызов инструмента, оборванный отказом, не отдаётся; причина отказа — в `ChatResponse`.
+- **Имя провайдера в ошибке не стирает `resetsAt` и `requestId`:** переименованное исключение несёт их дальше.
 - **Исчерпанное окно лимита не повторяется.** 429 с временем открытия окна (`error.resets_at` в теле или заголовок
   сброса при статусе окна `rejected`) несёт `resetsAt`; ждать часами — решение вызывающего, а не цикла повторов.
   Заголовок сброса без `rejected` — обычное притормаживание и повторяется как раньше.
+- **Gemini и Vertex — через совместимый адрес Google,** одним диалектом; подробности — [Gemini и Vertex](#gemini-и-vertex).
 - **Bedrock — по ключу Bedrock API, без SigV4:** подпись требует AWS SDK; регион проверяется по форме до того, как стать
   именем хоста.
 - **Каталоги прямых провайдеров описываются каталогом OpenRouter:** без цен и признаков модель нельзя выбрать по
@@ -86,6 +91,41 @@ Responses API), Anthropic Messages API и Claude в Amazon Bedrock; катало
   приложение по `ModelInfo::estimateCost()`.
 - **Отличия от hermes отмечены ссылками `ref:`** в коде (слияние ролей Anthropic, классификатор ошибок, метки кеша,
   Responses API).
+
+## Gemini и Vertex
+
+Оба провайдера Google ходят на адрес, совместимый с Chat Completions, и делят диалект `Dialect::Gemini`. Родного
+клиента (`generateContent`, Interactions) в пакете нет: hermes ходит им по умолчанию, здесь выбран совместимый адрес,
+чтобы работали общий разбор потока и классификация ошибок. Проверено на подставных ответах по документации Google и
+коду hermes; ключом вживую не проверялось.
+
+- **Адреса.** Gemini API — `https://generativelanguage.googleapis.com/v1beta/openai`, ключ в `Authorization: Bearer`.
+  Vertex — `https://{хост}/v1beta1/projects/{проект}/locations/{регион}/endpoints/openapi`; хост без приставки у
+  региона `global`. Проект и регион проверяются по форме до того, как стать частью адреса.
+- **Вход Vertex.** `VertexAccount` разбирает JSON сервисного аккаунта, подписывает JWT (RS256, OpenSSL) и меняет его
+  на токен в `https://oauth2.googleapis.com/token` (область `cloud-platform`). Адрес обмена из JSON не берётся: он
+  задаётся кодом. Токен обновляется за пять минут до истечения; обмен один на всех ожидающих и не зависит от отмены
+  вызвавшего. Ключ, подписанный JWT и токен в исключения не попадают; очередь ошибок OpenSSL сбрасывается непрочитанной.
+  Учётные данные по умолчанию (ADC) не читаются.
+- **Подписи мышления.** Gemini 3 и новее подписывает вызов инструмента (`extra_content.google.thought_signature`) и
+  без подписи в следующем запросе отвечает 400. Подпись хранится в `ToolCall::$signature`, читается из ответа и из
+  потока и возвращается только в диалекте Gemini. Пустая подпись — не подпись. Вызов без подписи (сделан другим
+  провайдером) получает заглушку `skip_thought_signature_validator` — на первом вызове шага и только у моделей,
+  которые подписи проверяют. Хранить подпись вместе с историей — дело приложения.
+- **Мышление.** `reasoningEffort` переводится в `extra_body.google.thinking_config` по семейству: Gemini 2.5 —
+  только отключение бюджетом 0; Gemini 3 Pro — `low` и `high`; остальные модели с уровнями — `low`/`medium`/`high`;
+  `xhigh` — только моделям, которые его принимают; Gemini 4 не отключается (наименьший уровень). Моделям не-Gemini
+  на том же ключе поле не шлётся. Сводки мыслей не запрашиваются (`include_thoughts: false`): как совместимый адрес
+  их отдаёт, не проверено, а текст ответа они испортить не должны.
+- **Предел ответа и `temperature`.** Мышление расходует предел ответа: когда оно запрошено, предел поднимается до
+  65 535. При отключённом мышлении малый предел сохраняется. `temperature` не шлётся моделям 3.6 и новее.
+- **Схемы инструментов.** `type` списком и ветвь `null` в объединении адрес отвергает; первое становится одним типом
+  с `nullable` или `anyOf`, второе — оставшейся схемой с `nullable`.
+- **Ошибки.** Тело ошибки бывает обёрнуто в список. «You exceeded your current quota» с признаком окна (время
+  повтора, «per minute», бесплатный уровень) — `rate_limited`, а не «кончились деньги»; время из «retry in N s»
+  становится `retryAfter`. Причины завершения приходят заглавными; `SAFETY`, `RECITATION` и подобные — `content_filter`.
+- **Цена.** API стоимость не сообщает. Каталог даёт базовую цену; повышенная цена Google для запросов длиннее
+  200 тысяч токенов не учитывается — известная неточность оценки.
 
 ## Проверки
 
@@ -104,6 +144,7 @@ Responses API), Anthropic Messages API и Claude в Amazon Bedrock; катало
 - [Как сделано: канал, модель и участники](../../brief/architecture.md#как-сделано-канал-модель-и-участники) — пакет в ядре, повторы, учёт расхода.
 - [Провайдеры моделей: OpenRouter и OpenAI](../../brief/models.md#провайдеры-моделей-openrouter-и-openai) — OpenAI, Responses, Anthropic, Bedrock, профиль провайдера.
 - [Как сделано: провайдер OpenAI](../../brief/models.md#как-сделано-провайдер-openai) — что найдено ревью адаптера.
+- [Провайдеры Gemini и Vertex](../../brief/models.md#провайдеры-gemini-и-vertex) — профили, настройки и каталоги в приложении.
 - [Codex по подписке ChatGPT](../../brief/models.md#codex-по-подписке-chatgpt) — провайдер `chatgpt:` в приложении.
 - [Надёжность инструментов и решения о модели](../../brief/models.md#надёжность-инструментов-и-решения-о-модели) — `toolReliable()`.
 - [Выбор моделей под задачу](../../brief/models.md#выбор-моделей-под-задачу) — как приложение пользуется каталогом.

@@ -154,6 +154,14 @@ final class ChatCompletions
             return $e;
         }
 
-        return new LlmException($e->kind, $this->provider . \substr($e->getMessage(), \strlen('OpenRouter')), $e->status, $e->retryAfter, $e);
+        return new LlmException(
+            $e->kind,
+            $this->provider . \substr($e->getMessage(), \strlen('OpenRouter')),
+            $e->status,
+            $e->retryAfter,
+            $e,
+            $e->resetsAt,
+            $e->requestId,
+        );
     }
 }

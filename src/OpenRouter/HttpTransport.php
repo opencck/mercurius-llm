@@ -41,6 +41,12 @@ final class HttpTransport
         /** @var array<non-empty-string, string> Extra headers of every request, e.g. a key in a provider's own header. */
         #[\SensitiveParameter]
         private readonly array $headers = [],
+        /**
+         * Source of a bearer token that changes while the transport lives (an hourly OAuth token); it replaces the key.
+         *
+         * @var (\Closure(?Cancellation): string)|null
+         */
+        private readonly ?\Closure $bearer = null,
     ) {
         $this->baseUrl = \rtrim($baseUrl, '/');
     }
@@ -56,7 +62,9 @@ final class HttpTransport
     {
         $request = new Request($this->baseUrl . $path, $method);
         $request->setHeader('accept', $accept);
-        if ($this->apiKey !== null && $this->apiKey !== '') {
+        if ($this->bearer !== null) {
+            $request->setHeader('authorization', 'Bearer ' . ($this->bearer)($cancellation));
+        } elseif ($this->apiKey !== null && $this->apiKey !== '') {
             $request->setHeader('authorization', 'Bearer ' . $this->apiKey);
         }
         if ($this->appName !== null && $this->appName !== '') {

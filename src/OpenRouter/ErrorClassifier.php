@@ -50,7 +50,7 @@ final class ErrorClassifier
             self::kindFor($status, $message),
             self::format($status, $message),
             $status,
-            self::parseRetryAfter($retryAfterHeader, $now),
+            self::parseRetryAfter($retryAfterHeader, $now) ?? ($status === 429 ? self::retryInMessage($message) : null),
             null,
             $status === 429 ? self::windowReset($body, $headers) : null,
             self::requestId($headers['request-id'] ?? $headers['x-request-id'] ?? null),
@@ -192,11 +192,38 @@ final class ErrorClassifier
         // ref: references/hermes-agent/agent/error_classifier.py@e96221fa:L115 — billing phrases, insufficient_quota
         foreach (['exceeded your current quota', 'insufficient_quota', 'insufficient credits', 'insufficient balance'] as $pattern) {
             if (\str_contains($lower, $pattern)) {
-                return ErrorKind::InsufficientCredits;
+                // Google words a used-up window of requests the same way OpenAI words a spent balance: a quota
+                // that names its window or a time to retry is a limit, and waiting helps it.
+                return self::namesWindow($lower) ? null : ErrorKind::InsufficientCredits;
             }
         }
 
         return null;
+    }
+
+    /**
+     * Whether a message about a quota names a window that reopens.
+     *
+     * ref: references/hermes-agent/agent/error_classifier.py@e96221f:L200-L203 (_USAGE_LIMIT_TRANSIENT_SIGNALS) — the
+     *      signs of a periodic quota; of them the ones Google's messages carry
+     * ref: references/hermes-agent/agent/gemini_native_adapter.py@e96221f:L232-L234 (is_free_tier_quota_error) — the
+     *      free tier names itself in the metric
+     */
+    private static function namesWindow(string $lower): bool
+    {
+        foreach (['retry in', 'try again', 'per minute', 'per day', 'per second', 'perminute', 'perday', 'free_tier', 'resets in', 'resets at'] as $sign) {
+            if (\str_contains($lower, $sign)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** Seconds from "Please retry in 34.5s" of a Google quota message. */
+    private static function retryInMessage(string $message): ?float
+    {
+        return \preg_match('/retry in (\d+(?:\.\d+)?)\s*s\b/i', $message, $m) === 1 ? (float) $m[1] : null;
     }
 
     private static function extractMessage(string $body): ?string
@@ -211,6 +238,10 @@ final class ErrorClassifier
         }
         if (!\is_array($decoded)) {
             return null;
+        }
+        // Google's OpenAI-compatible address wraps the error object in a list
+        if (\array_is_list($decoded) && $decoded !== []) {
+            $decoded = Json::object($decoded, 0);
         }
         return Json::string(Json::object($decoded, 'error'), 'message') ?? Json::string($decoded, 'error');
     }

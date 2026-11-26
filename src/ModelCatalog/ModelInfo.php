@@ -44,6 +44,28 @@ final class ModelInfo
     ) {
     }
 
+    /** The same model under the id another provider gives it. */
+    public function named(string $id): self
+    {
+        return new self(
+            $id,
+            $this->name,
+            $this->contextLength,
+            $this->inputPricePerToken,
+            $this->outputPricePerToken,
+            $this->inputModalities,
+            $this->outputModalities,
+            $this->supportedParameters,
+            $this->maxCompletionTokens,
+            $this->cacheReadPricePerToken,
+            $this->cacheWritePricePerToken,
+            $this->intelligenceIndex,
+            $this->codingIndex,
+            $this->agenticIndex,
+            $this->reasoningMandatory,
+        );
+    }
+
     public function supports(string $parameter): bool
     {
         return \in_array($parameter, $this->supportedParameters, true);
