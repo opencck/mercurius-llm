@@ -28,7 +28,8 @@ final class AntigravityClient implements LlmClient
     /**
      * @param string $token the token of the module
      * @param string $baseUrl the address of the service with `/v1`
-     * @param float $firstEventTimeout the CLI starts for seconds and the model may think for minutes before a word
+     * @param float $firstEventTimeout longer than the service itself waits: up to two minutes for a place in its queue and
+     *                                 five minutes of silence of the CLI, so its own answer about a timeout arrives first
      */
     public function __construct(
         HttpClient $http,
@@ -39,8 +40,8 @@ final class AntigravityClient implements LlmClient
         float $inactivityTimeout = 600.0,
         float $transferTimeout = 1800.0,
         int $maxResponseBytes = 32 * 1024 * 1024,
-        float $firstEventTimeout = 420.0,
-        float $eventTimeout = 420.0,
+        float $firstEventTimeout = 480.0,
+        float $eventTimeout = 360.0,
     ) {
         if ($token === '') {
             throw new \InvalidArgumentException('The token of the antigravity module must not be empty');
