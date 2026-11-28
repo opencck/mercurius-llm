@@ -30,7 +30,15 @@ final class Message
         /** a cache breakpoint at the end of this message, for providers that cache only where asked */
         public readonly bool $cacheMark = false,
         array $media = [],
+        /**
+         * What the model thought before this answer of the assistant; a provider that wants it back gets it (Kimi
+         * refuses a turn with tool calls without it), the others do not.
+         */
+        public readonly string $reasoning = '',
     ) {
+        if ($reasoning !== '' && $role !== Role::Assistant) {
+            throw new \InvalidArgumentException('Only assistant messages may carry reasoning');
+        }
         if ($media !== [] && $role !== Role::User) {
             throw new \InvalidArgumentException('Only user messages may carry images and videos');
         }
@@ -52,7 +60,7 @@ final class Message
      */
     public function cached(): self
     {
-        return new self($this->role, $this->content, $this->toolCalls, $this->toolCallId, true, $this->media);
+        return new self($this->role, $this->content, $this->toolCalls, $this->toolCallId, true, $this->media, $this->reasoning);
     }
 
     public static function system(string $content): self
@@ -70,10 +78,11 @@ final class Message
 
     /**
      * @param list<ToolCall> $toolCalls
+     * @param string $reasoning what the model thought before this answer
      */
-    public static function assistant(string $content, array $toolCalls = []): self
+    public static function assistant(string $content, array $toolCalls = [], string $reasoning = ''): self
     {
-        return new self(Role::Assistant, $content, $toolCalls);
+        return new self(Role::Assistant, $content, $toolCalls, reasoning: $reasoning);
     }
 
     /**

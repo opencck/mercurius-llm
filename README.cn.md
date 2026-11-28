@@ -4,7 +4,7 @@
 
 > 本文由模型翻译，尚未经人工审校；如有出入，以英文版为准。
 
-调用大语言模型的统一接口：消息、工具、流式输出、token 和成本核算、错误与重试。适配器：OpenRouter、OpenAI API（Chat Completions 和 Responses）、Anthropic Messages API、Amazon Bedrock 中的 Claude、Gemini API 以及 Google Cloud（Vertex）中的 Gemini；其他提供商以适配器的形式添加，无需改动接口。
+调用大语言模型的统一接口：消息、工具、流式输出、token 和成本核算、错误与重试。适配器：OpenRouter、OpenAI API（Chat Completions 和 Responses）、Anthropic Messages API、Amazon Bedrock 中的 Claude、Gemini API 以及 Google Cloud（Vertex）中的 Gemini、Kimi Platform 和 Kimi Code 订阅；其他提供商以适配器的形式添加，无需改动接口。
 
 [Mercurius](https://github.com/opencck/mercurius) 的一部分，一个自主的个人智能体。该包不依赖 Mercurius 应用，可以单独使用。
 
@@ -86,6 +86,8 @@ foreach ($llm->stream($request) as $event) {
 | `Gemini\GeminiClient` | 使用 Google AI Studio 密钥的 Gemini API，经由其兼容 OpenAI 的地址（`https://generativelanguage.googleapis.com/v1beta/openai`）：思考通过 `extra_body.google.thinking_config` 传递，级别按各模型系列所接受的取值（不请求思考摘要）；请求思考时提高回答上限；对 Gemini 3.6 及更新的模型不发送 `temperature`；工具 schema 会清除类型列表和 null 分支；工具调用的思考签名保存在 `ToolCall::$signature` 中并随请求发回（由其他提供商发起的调用使用占位值） |
 | `Gemini\VertexClient`、`Gemini\VertexAccount` | Google Cloud 中的 Gemini（Gemini Enterprise Agent Platform，原 Vertex AI），经由其兼容 OpenAI 的地址，请求规则相同；模型名形如 `google/gemini-…`。`VertexAccount::fromJson()` 接收服务账号的密钥文件，签发 JWT（RS256，`ext-openssl`）并换取有效期一小时的令牌，不阻塞事件循环：令牌在过期前五分钟刷新，并发调用共用一次交换 |
 | `ModelCatalog\GeminiCatalog`、`ModelCatalog\VertexCatalog` | `fetch(): list<ModelInfo>`：Gemini 密钥可用的文本模型（`GET …/openai/models`），由 OpenRouter 目录描述；Vertex 在该地址没有模型列表，因此其目录取 OpenRouter 目录中的 Gemini 文本模型（拼写相同）。价格为基础价：Google 对超过 20 万 token 的请求的更高价格未计入 |
+| `Moonshot\MoonshotClient` | 经由 Chat Completions 调用 Kimi 模型：`platform()` 为使用密钥的 Kimi Platform（`https://api.moonshot.ai/v1`），`kimiCode()` 为使用其控制台密钥的 Kimi Code 订阅（`https://api.kimi.ai/coding/v1`）。思考强度通过顶层 `reasoning_effort` 设置，不发送 `temperature`，带工具调用的回合的推理以 `reasoning_content` 字段回传，工具 schema 遵循 Moonshot 更严格的规则；请求以 `Mercurius/<版本>` 标明客户端。订阅额度窗口用尽时，错误带有从额度查询得到的 `resetsAt` |
+| `ModelCatalog\KimiCodeCatalog`、`ModelCatalog\MoonshotCatalog`、`Moonshot\KimiCodeUsage` | 订阅和平台密钥可用的模型，含上下文窗口、媒体与思考能力（`GET /models`；平台价格取自 OpenRouter 目录）；订阅额度（`GET /usages`） |
 | `Antigravity\AntigravityClient` | `mercurius-antigravity` 服务的 Chat Completions 客户端（通过独立服务中的官方 CLI 使用 Google Antigravity 套餐的模型）：使用带 `reasoning.effort` 的普通请求体和较长的流超时；窗口用尽的 429 带有 `resetsAt`，违反调用规则的 422 不会重试 |
 | `ModelCatalog\AnthropicCatalog` | `fetch(): list<ModelInfo>`：该密钥可用的模型（`GET /v1/models`），由公开的 OpenRouter 目录进行描述，该目录用点号书写版本（`claude-opus-5-5` 即 `anthropic/claude-opus-5.5`，带日期的 id 查找时去掉日期）；它不认识的模型会被略去 |
 | `OpenRouter\ImageClient` | `generate(ImageRequest): ImageResult`：来自 OpenRouter 图像模型的图片（`POST /images`，`response_format: b64_json`——图片随响应返回，而不是会过期的链接）；`ImageRequest` 检查数量（1–10）、宽高比和分辨率档位；`ImageResult` 携带 `MediaPart` 图片、usage 和报告的成本；没有图片即为错误 |

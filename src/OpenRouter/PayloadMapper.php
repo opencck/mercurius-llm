@@ -13,6 +13,8 @@ use Mercurius\Llm\Gemini\ToolSchema;
 use Mercurius\Llm\LlmException;
 use Mercurius\Llm\MediaPart;
 use Mercurius\Llm\Message;
+use Mercurius\Llm\Moonshot\MoonshotModel;
+use Mercurius\Llm\Moonshot\ToolSchema as MoonshotSchema;
 use Mercurius\Llm\Role;
 use Mercurius\Llm\ToolCall;
 use Mercurius\Llm\ToolDefinition;
@@ -31,28 +33,34 @@ final class PayloadMapper
     public static function toPayload(ChatRequest $request, bool $stream, Dialect $dialect = Dialect::OpenRouter): array
     {
         $gemini = $dialect === Dialect::Gemini;
+        $moonshot = $dialect === Dialect::Moonshot;
         // Gemini 3 and later want the signature of a tool call back, and a stand-in for a call another provider made
         $stub = $gemini && GeminiModel::usesThinkingLevel($request->model);
         $payload = [
             'model' => $request->model,
-            'messages' => \array_map(static fn (Message $m): array => self::message($m, $gemini, $stub), $request->messages),
+            'messages' => \array_map(static fn (Message $m): array => self::message($m, $gemini, $stub, $moonshot), $request->messages),
         ];
         if ($request->tools !== []) {
-            $payload['tools'] = \array_map(static fn (ToolDefinition $t): array => self::tool($t, $gemini), $request->tools);
+            $payload['tools'] = \array_map(static fn (ToolDefinition $t): array => self::tool($t, $dialect), $request->tools);
         }
         $effort = $request->reasoningEffort;
         if ($request->maxTokens !== null) {
             // ref: references/hermes-agent/utils.py@e96221fa:L835-L838 (model_forces_max_completion_tokens) — newer
             //      OpenAI models refuse max_tokens; the OpenAI API takes max_completion_tokens for all of them
-            $payload[$dialect === Dialect::OpenAI ? 'max_completion_tokens' : 'max_tokens'] = $gemini
-                ? GeminiModel::maxTokens($request->model, $effort, $request->maxTokens)
-                : $request->maxTokens;
+            $payload[$dialect === Dialect::OpenAI || $moonshot ? 'max_completion_tokens' : 'max_tokens'] = match ($dialect) {
+                Dialect::Gemini => GeminiModel::maxTokens($request->model, $effort, $request->maxTokens),
+                // Kimi always thinks, and its thinking is billed against the ceiling
+                Dialect::Moonshot => MoonshotModel::maxTokens($request->maxTokens),
+                default => $request->maxTokens,
+            };
         }
         $temperature = match ($dialect) {
             // Reasoning models of the OpenAI API refuse a temperature other than the default.
             Dialect::OpenAI => $effort === null,
             Dialect::Gemini => !GeminiModel::ignoresTemperature($request->model),
             Dialect::OpenRouter => true,
+            // K3 fixes its temperature; Kimi manages it on its side
+            Dialect::Moonshot => false,
         };
         if ($request->temperature !== null && $temperature) {
             $payload['temperature'] = $request->temperature;
@@ -65,6 +73,8 @@ final class PayloadMapper
             if ($thinking !== null) {
                 $payload['extra_body'] = ['google' => ['thinking_config' => $thinking]];
             }
+        } elseif ($moonshot) {
+            $payload = \array_replace($payload, MoonshotModel::thinking($request->model, $effort));
         } elseif ($effort !== null) {
             if ($dialect === Dialect::OpenAI) {
                 // The OpenAI API has no "max": its highest effort is "xhigh".
@@ -129,7 +139,7 @@ final class PayloadMapper
             self::usage(Json::object($data, 'usage')),
             Json::string($data, 'model') ?? '',
             Json::string($data, 'id') ?? '',
-            Json::string($message, 'reasoning') ?? '',
+            Json::string($message, 'reasoning') ?? Json::string($message, 'reasoning_content') ?? '',
         );
     }
 
@@ -145,7 +155,8 @@ final class PayloadMapper
         $completionDetails = Json::object($usage, 'completion_tokens_details');
 
         $prompt = self::count($usage, 'prompt_tokens');
-        $cacheRead = self::count($promptDetails, 'cached_tokens');
+        // Moonshot reports the cached part at the top of `usage` as well
+        $cacheRead = self::count($promptDetails, 'cached_tokens') ?: self::count($usage, 'cached_tokens');
         $cacheWrite = self::count($promptDetails, 'cache_write_tokens');
 
         return new Usage(
@@ -178,14 +189,29 @@ final class PayloadMapper
     /**
      * @param bool $signatures whether tool calls carry their signatures (the dialect of Google)
      * @param bool $stub whether a call without a signature gets the stand-in
+     * @param bool $reasoning whether the reasoning of the turn goes back (the dialect of Moonshot)
      * @return array<string, mixed>
      */
-    private static function message(Message $message, bool $signatures = false, bool $stub = false): array
+    private static function message(Message $message, bool $signatures = false, bool $stub = false, bool $reasoning = false): array
     {
         $out = ['role' => $message->role->value];
         switch ($message->role) {
             case Role::Assistant:
                 $out['content'] = $message->content === '' && $message->toolCalls !== [] ? null : $message->content;
+                if ($reasoning) {
+                    // ref: references/kimi-code/packages/core/src/llm/builtin/provider/kimi/protocol.ts@a6ac07d:L90-L121
+                    //      (applyKimiMessageExtras) — no empty text next to tool calls
+                    // ref: references/hermes-agent/agent/message_sanitization.py@e96221f:L702-L724 — a turn with tool
+                    //      calls without reasoning is 400 on Kimi: a space stands in for a turn another provider made
+                    if ($out['content'] === null) {
+                        unset($out['content']);
+                    }
+                    if ($message->reasoning !== '') {
+                        $out['reasoning_content'] = $message->reasoning;
+                    } elseif ($message->toolCalls !== []) {
+                        $out['reasoning_content'] = ' ';
+                    }
+                }
                 if ($message->toolCalls !== []) {
                     $out['tool_calls'] = \array_map(
                         static fn (ToolCall $call): array => [
@@ -230,11 +256,18 @@ final class PayloadMapper
     /**
      * @return array<string, mixed>
      */
-    private static function tool(ToolDefinition $tool, bool $gemini = false): array
+    private static function tool(ToolDefinition $tool, Dialect $dialect = Dialect::OpenRouter): array
     {
         $parameters = $tool->parameters === []
             ? ['type' => 'object', 'properties' => new \stdClass()]
-            : self::fixEmptyObjects($gemini ? ToolSchema::clean($tool->parameters) : $tool->parameters);
+            : self::fixEmptyObjects(match ($dialect) {
+                Dialect::Gemini => ToolSchema::clean($tool->parameters),
+                Dialect::Moonshot => MoonshotSchema::clean($tool->parameters),
+                default => $tool->parameters,
+            });
+        if ($dialect === Dialect::Moonshot && $tool->parameters === []) {
+            $parameters['required'] = [];
+        }
 
         return [
             'type' => 'function',

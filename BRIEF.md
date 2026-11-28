@@ -128,6 +128,44 @@ Responses API), Anthropic Messages API, Claude в Amazon Bedrock, Gemini API и 
 - **Цена.** API стоимость не сообщает. Каталог даёт базовую цену; повышенная цена Google для запросов длиннее
   200 тысяч токенов не учитывается — известная неточность оценки.
 
+## Moonshot и Kimi Code
+
+`Moonshot/MoonshotClient` — модели Kimi через Chat Completions с диалектом `Dialect::Moonshot`: Kimi Platform за
+токен (`platform()`, `https://api.moonshot.ai/v1` или `https://api.moonshot.cn/v1`) и подписка Kimi Code
+(`kimiCode()`, `https://api.kimi.ai/coding/v1` или `https://api.kimi.com/coding/v1`). Другие адреса не принимаются:
+ключ ушёл бы туда. Проверено на подставных ответах по документации Kimi, коду официального клиента
+(`references/kimi-code`) и hermes; ключами вживую не проверялось.
+
+- **Заголовки.** `User-Agent: Mercurius/<версия>` (версия — только буквы, цифры и `._+-`, иначе `dev`),
+  `HTTP-Referer: https://mercurius.opencck.org`, `X-Title: Mercurius`. Заголовков устройства официального клиента
+  (`X-Msh-*`) нет: правила Kimi Code запрещают подменять идентификатор клиента.
+- **Мышление.** `MoonshotModel::thinking()`: K3, K3.1 и `kimi-for-coding` — верхнее `reasoning_effort` `low`/`high`/
+  `max` (`medium` → `high`, `xhigh` → `max`); `none` не шлётся — выключить мышление нельзя, модель думает со своим
+  уровнем. `kimi-for-coding-highspeed` — без уровня. K2 платформы — `thinking: {type: enabled, keep: all}`. Форма
+  официального клиента (`thinking.effort`) не используется: документация обеих сторон называет верхнее поле.
+- **Предел ответа и `temperature`.** Ответ ограничивается `max_completion_tokens` не меньше 32 000: мышление
+  расходует предел. `temperature` не шлётся.
+- **Рассуждение в истории.** `Message::$reasoning` — рассуждение хода ассистента. В диалекте Moonshot оно уходит
+  полем `reasoning_content`; ход с вызовами без рассуждения получает пробел (иначе 400), пустой текст рядом с
+  вызовами не шлётся. Другим диалектам поле не уходит. Из ответа и из потока рассуждение читается и под именем
+  `reasoning_content`.
+- **Схемы инструментов.** `Moonshot/ToolSchema`: локальные `$ref` раскрываются, у каждого узла есть тип, ветви
+  `null` и `nullable` убираются, перечисления скаляров без `null` и `""`, у объектов — `required` из своих свойств.
+- **Поток.** Kimi шлёт новый `id` с каждым куском аргументов вызова: имя вызова — первый `id` (для всех диалектов;
+  остальные шлют его один раз). Usage — и вверху кадра, и в `choices[0]`; чтение из кеша — `cached_tokens` вверху
+  `usage`, если его нет в `prompt_tokens_details`.
+- **Ошибки.** Общий классификатор знает тексты Kimi: тело больше 2 МБ, предел токенов модели и «Input token length too
+  long» — `context_length`; «considered high risk» — `content_filter`; кончившийся баланс, квота токенов, «Extra
+  Usage» — `insufficient_credits`; 403 «subscription does not have access to» и «plan supports only» — модель вне
+  плана, `bad_request`; идентификатор запроса — заголовок `x-trace-id`.
+- **Окна подписки.** 429 исчерпанного окна («usage limit» — 5 часов, неделя, месяц; кончившийся «Extra Usage»)
+  у `kimiCode()` получает `resetsAt`: позднейший сброс исчерпанных окон из квоты `Moonshot/KimiCodeUsage`
+  (`GET /usages`), без ответа — через час. С `resetsAt` ошибка не повторяется.
+- **Каталоги.** `ModelCatalog\KimiCodeCatalog` — модели подписки из `/models` (окно `limit.context`, медиа,
+  `reasoning.type`, `supports_tool_use`), цены 0. `ModelCatalog\MoonshotCatalog` — модели платформы из `/models`
+  (окно, медиа, мышление), цены и индексы — из записей `moonshotai/<id>` каталога OpenRouter; без записи — без цены.
+- **Цена.** API стоимость не сообщает: `Usage::$costUsd` — null.
+
 ## Antigravity
 
 `Antigravity/AntigravityClient` — клиент сервиса `mercurius-antigravity` (модели плана Google Antigravity через

@@ -115,6 +115,7 @@ final class HttpTransport
         throw ErrorClassifier::fromHttpResponse($status, $text, $response->getHeader('retry-after'), \microtime(true), [
             'request-id' => $response->getHeader('request-id'),
             'x-request-id' => $response->getHeader('x-request-id'),
+            'x-trace-id' => $response->getHeader('x-trace-id'),
             'anthropic-ratelimit-unified-status' => $response->getHeader('anthropic-ratelimit-unified-status'),
             'anthropic-ratelimit-unified-reset' => $response->getHeader('anthropic-ratelimit-unified-reset'),
         ]);

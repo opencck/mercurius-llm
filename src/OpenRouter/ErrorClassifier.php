@@ -31,9 +31,15 @@ final class ErrorClassifier
         'prompt is too long',
         'input is too long',
         'reduce the length',
+        // ref: docs/kimi-code-error-reference.md:L413-L438 (fetched 2026-11-28) — Kimi: the 2 MB of the messages and
+        //      the window; docs/kimi-platform-errors.md:L32 — the platform words the window so
+        'total message size',
+        'model token limit',
+        'token length too long',
     ];
 
-    private const MODERATION_PATTERNS = ['moderation', 'flagged'];
+    // ref: docs/kimi-platform-errors.md:L30 (fetched 2026-11-28) — the safety review of Kimi
+    private const MODERATION_PATTERNS = ['moderation', 'flagged', 'considered high risk'];
 
     /**
      * Classifies a non-2xx HTTP response.
@@ -53,7 +59,7 @@ final class ErrorClassifier
             self::parseRetryAfter($retryAfterHeader, $now) ?? ($status === 429 ? self::retryInMessage($message) : null),
             null,
             $status === 429 ? self::windowReset($body, $headers) : null,
-            self::requestId($headers['request-id'] ?? $headers['x-request-id'] ?? null),
+            self::requestId($headers['request-id'] ?? $headers['x-request-id'] ?? $headers['x-trace-id'] ?? null),
         );
     }
 
@@ -142,12 +148,17 @@ final class ErrorClassifier
         return match (true) {
             $status === 401 => ErrorKind::Auth,
             $status === 402 => ErrorKind::InsufficientCredits,
-            $status === 403 => $byMessage === ErrorKind::ContentFilter ? ErrorKind::ContentFilter : ErrorKind::Auth,
+            $status === 403 => match (true) {
+                $byMessage === ErrorKind::ContentFilter => ErrorKind::ContentFilter,
+                // a model or a window outside the plan: the request of this model, not the key, is wrong
+                self::outsidePlan($message) => ErrorKind::BadRequest,
+                default => ErrorKind::Auth,
+            },
             $status === 408 => ErrorKind::Timeout,
             $status === 413 => ErrorKind::ContextLength,
             // OpenAI reports a spent balance as 429 too; waiting does not help it.
             $status === 429 => $byMessage === ErrorKind::InsufficientCredits ? ErrorKind::InsufficientCredits : ErrorKind::RateLimited,
-            $status >= 400 && $status < 500 => $byMessage === ErrorKind::ContextLength ? ErrorKind::ContextLength : ErrorKind::BadRequest,
+            $status >= 400 && $status < 500 => $byMessage === ErrorKind::ContextLength || $byMessage === ErrorKind::ContentFilter ? $byMessage : ErrorKind::BadRequest,
             $status >= 500 && $status < 600 => ErrorKind::Server,
             default => ErrorKind::Unknown,
         };
@@ -190,7 +201,9 @@ final class ErrorClassifier
             }
         }
         // ref: references/hermes-agent/agent/error_classifier.py@e96221fa:L115 — billing phrases, insufficient_quota
-        foreach (['exceeded your current quota', 'insufficient_quota', 'insufficient credits', 'insufficient balance'] as $pattern) {
+        // ref: docs/kimi-platform-errors.md:L61-L72, docs/kimi-code-error-reference.md:L325-L360 (fetched 2026-11-28) —
+        //      Kimi words a spent balance and a spent Extra Usage so
+        foreach (['exceeded your current quota', 'insufficient_quota', 'insufficient credits', 'insufficient balance', 'balance is insufficient', 'quota is insufficient', 'extra usage balance', 'extra usage limit'] as $pattern) {
             if (\str_contains($lower, $pattern)) {
                 // Google words a used-up window of requests the same way OpenAI words a spent balance: a quota
                 // that names its window or a time to retry is a limit, and waiting helps it.
@@ -218,6 +231,18 @@ final class ErrorClassifier
         }
 
         return false;
+    }
+
+    /**
+     * Whether a refusal names a model or a window the plan does not include (Kimi Code).
+     *
+     * ref: docs/kimi-code-error-reference.md:L177-L275 (fetched 2026-11-28) — 403 of a plan: retrying is pointless
+     */
+    private static function outsidePlan(string $message): bool
+    {
+        $lower = \strtolower($message);
+
+        return \str_contains($lower, 'subscription does not have access to') || \str_contains($lower, 'plan supports only');
     }
 
     /** Seconds from "Please retry in 34.5s" of a Google quota message. */

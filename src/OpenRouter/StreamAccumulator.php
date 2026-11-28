@@ -78,9 +78,15 @@ final class StreamAccumulator
             if ((Json::int($choice, 'index') ?? 0) !== 0) {
                 continue; // only the first choice is supported (n = 1)
             }
+            // ref: references/kimi-code/packages/core/src/llm/builtin/protocol/openai/decode.ts@a6ac07d:L316-L320 — Kimi
+            //      may put usage inside the choice
+            if ($this->usage === null && Json::has($choice, 'usage')) {
+                $this->usage = PayloadMapper::usage(Json::object($choice, 'usage'));
+            }
             $delta = Json::object($choice, 'delta');
 
-            $reasoning = Json::string($delta, 'reasoning');
+            // Moonshot names the reasoning `reasoning_content`
+            $reasoning = Json::string($delta, 'reasoning') ?? Json::string($delta, 'reasoning_content');
             if ($reasoning !== null && $reasoning !== '') {
                 $this->grow(\strlen($reasoning));
                 $this->reasoning .= $reasoning;
@@ -157,8 +163,10 @@ final class StreamAccumulator
             $current = ['id' => '', 'name' => '', 'arguments' => '', 'signature' => null];
         }
         $this->grow(\strlen($fragment));
+        // ref: references/hermes-agent/agent/chat_completion_helpers_tool_calls.py@e96221f:L33 — Kimi sends a fresh id
+        //      with every fragment of the arguments: the first one names the call
         $this->toolCalls[$index] = [
-            'id' => $id ?? $current['id'],
+            'id' => $current['id'] !== '' ? $current['id'] : ($id ?? ''),
             'name' => $name ?? $current['name'],
             'arguments' => $current['arguments'] . $fragment,
             'signature' => PayloadMapper::signature($call) ?? $current['signature'],
